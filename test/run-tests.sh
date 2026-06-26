@@ -67,6 +67,8 @@ assert_empty "$OUT" "allows with one-shot token"
 [ -f "$SRC/state/merge-approved" ] && no "token consumed" || ok "token consumed after use"
 OUT=$(printf '{"tool_input":{"command":"ls -la"}}' | bash "$SRC/merge-guard.sh")
 assert_empty "$OUT" "normal command passes"
+OUT=$(printf '{"tool_input":{"command":"git merge-base main HEAD"}}' | bash "$SRC/merge-guard.sh")
+assert_empty "$OUT" "git merge-base (read-only) is not blocked"
 
 # ---------- SubagentStop verifier: exit 2 on failure, with marker ----------
 echo "SubagentStop verifier:"

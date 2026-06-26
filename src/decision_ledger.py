@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Decision ledger — persists binding in-session decisions so the assistant
-stops contradicting itself and re-architecting settled work.
-
-    python3 decision_ledger.py add  <cwd> "drop the legacy adapter"
-    python3 decision_ledger.py show <cwd>
-    python3 decision_ledger.py clear <cwd>
-"""
+"""Binding decision ledger. add|show|clear <cwd> [text]."""
 import sys, os, qllib
 
 def add(cwd, text):
@@ -14,21 +8,19 @@ def add(cwd, text):
     first = not os.path.exists(p)
     with open(p, "a") as fh:
         if first:
-            fh.write("# Binding decisions for this workspace\n# These are SETTLED. Do not reopen, re-architect, or contradict.\n\n")
+            fh.write("# Binding decisions for this workspace — SETTLED; do not reopen or contradict.\n\n")
         fh.write("- " + text.strip() + "\n")
 
 def show(cwd):
-    p = qllib.ledger_path(cwd)
     try:
-        with open(p) as fh:
+        with open(qllib.ledger_path(cwd)) as fh:
             return fh.read()
     except Exception:
         return ""
 
 def clear(cwd):
-    p = qllib.ledger_path(cwd)
     try:
-        os.remove(p)
+        os.remove(qllib.ledger_path(cwd))
     except Exception:
         pass
 
