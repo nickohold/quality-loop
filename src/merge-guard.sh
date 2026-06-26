@@ -6,8 +6,8 @@ CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 [ -z "$CMD" ] && exit 0
 TOKEN="$QL/state/merge-approved"
 
-# Require a space (not a hyphen) after "merge" so git merge-base / mergetool don't false-fire.
-if echo "$CMD" | grep -Eq 'git[[:space:]]+merge[[:space:]]+[^-]|gh[[:space:]]+pr[[:space:]]+merge|git[[:space:]]+push[[:space:]].*(origin[[:space:]]+)?(main|master)|git[[:space:]]+push[[:space:]]+(--force|-f)'; then
+# Parse the leading git/gh subcommand of each segment, not the whole string.
+if python3 "$QL/merge_match.py" "$CMD"; then
   if [ -f "$TOKEN" ]; then
     rm -f "$TOKEN"   # one-shot
     exit 0

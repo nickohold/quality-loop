@@ -12,7 +12,7 @@ MARKER="$QL/state/active-$(printf '%s' "$CWD" | shasum -a 1 | cut -c1-16)"
 [ -f "$MARKER" ] || exit 0
 [ -n "$(find "$MARKER" -mmin +180 2>/dev/null)" ] && exit 0   # stale marker, don't nag
 
-RESULT=$(cd "$QL" && python3 verify.py "$TRANSCRIPT" "$CWD" 2>/dev/null)
+RESULT=$(cd "$QL" && python3 verify.py "$TRANSCRIPT" "$CWD" --role lead 2>/dev/null)
 [ -z "$RESULT" ] && exit 0
 mkdir -p "$QL/logs"
 echo "$RESULT" | jq -r '.warnings[]? | "WARN: " + .' >> "$QL/logs/warnings.log" 2>/dev/null

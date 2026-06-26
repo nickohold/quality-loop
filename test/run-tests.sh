@@ -121,6 +121,38 @@ OUT=$(printf '{"tool_input":{"command":"ls -la"}}' | bash "$SRC/merge-guard.sh")
 assert_empty "$OUT" "normal command passes"
 OUT=$(printf '{"tool_input":{"command":"git merge-base main HEAD"}}' | bash "$SRC/merge-guard.sh")
 assert_empty "$OUT" "git merge-base (read-only) is not blocked"
+rm -f "$SRC/state/merge-approved"
+OUT=$(printf '{"tool_input":{"command":"git merge feature"}}' | bash "$SRC/merge-guard.sh")
+assert_has "$OUT" 'deny' "git merge <branch> is blocked"
+OUT=$(printf '{"tool_input":{"command":"git push --force"}}' | bash "$SRC/merge-guard.sh")
+assert_has "$OUT" 'deny' "git push --force is blocked"
+OUT=$(printf '{"tool_input":{"command":"git push -f origin feature"}}' | bash "$SRC/merge-guard.sh")
+assert_has "$OUT" 'deny' "git push -f is blocked"
+OUT=$(printf '{"tool_input":{"command":"gh pr merge 12 --squash"}}' | bash "$SRC/merge-guard.sh")
+assert_has "$OUT" 'deny' "gh pr merge is blocked"
+OUT=$(printf '{"tool_input":{"command":"echo \\"about to merge\\" && git status"}}' | bash "$SRC/merge-guard.sh")
+assert_empty "$OUT" "compound read-only command mentioning merge is not blocked"
+OUT=$(printf '{"tool_input":{"command":"git log --oneline main"}}' | bash "$SRC/merge-guard.sh")
+assert_empty "$OUT" "git log on main is not blocked"
+OUT=$(printf '{"tool_input":{"command":"git status && git merge feature"}}' | bash "$SRC/merge-guard.sh")
+assert_has "$OUT" 'deny' "merge hidden in a compound command is still blocked"
+rm -f "$SRC/state/merge-approved"; touch "$SRC/state/merge-approved"
+OUT=$(printf '{"tool_input":{"command":"git merge feature"}}' | bash "$SRC/merge-guard.sh")
+assert_empty "$OUT" "token allows the first real block"
+[ -f "$SRC/state/merge-approved" ] && no "token consumed on first block" || ok "token consumed on first block"
+
+# ---------- lead's prose Stop report is NOT claim-checked ----------
+echo "Lead report exemption:"
+LEAD="$TMP/lead"; mkdir -p "$LEAD"; ( cd "$LEAD"; git init -q; git config user.email t@t.t; git config user.name t
+  printf 'a\n' > f; git add f; git commit -qm init )
+cat > "$TMP/lead.jsonl" <<'J'
+{"type":"user","message":{"role":"user","content":"did it land?"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Yes. The PR is merged and all tests pass."}]}}
+J
+R=$(cd "$SRC" && python3 verify.py "$TMP/lead.jsonl" "$LEAD" --role lead)
+assert_has "$R" '"pass": true' "lead prose report with merged/tests pass and no ql-result block is not blocked"
+R=$(cd "$SRC" && python3 verify.py "$TMP/lead.jsonl" "$LEAD")
+assert_has "$R" 'ql-result' "same turn as a worker (default role) IS still claim-checked"
 
 # ---------- SubagentStop verifier: exit 2 on failure, with marker ----------
 echo "SubagentStop verifier:"
