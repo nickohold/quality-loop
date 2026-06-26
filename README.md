@@ -11,6 +11,20 @@ talk its way past**. It was reverse-engineered from months of real transcripts:
 find where the agent actually fails, then build a gate exactly there. See
 [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
+## Contents
+
+- [The problem](#the-problem)
+- [What it does](#what-it-does)
+  - [Opt-in by design](#opt-in-by-design)
+- [Install](#install)
+- [Make it yours](#make-it-yours)
+  - [The kill-list](#the-kill-list)
+  - [Other knobs](#other-knobs)
+- [The flywheel (optional)](#the-flywheel-optional)
+- [How it works under the hood](#how-it-works-under-the-hood)
+- [Tests](#tests)
+- [License](#license)
+
 ---
 
 ## The problem
