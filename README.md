@@ -160,17 +160,21 @@ you set up on day one — and it's **LLM-powered on purpose**.
    **reads and understands** it: what was the agent doing that you kept reacting
    to? It clusters the friction into themes — including new kinds nobody listed in
    advance.
-3. For each theme it proposes a concrete, paste-ready rule delta (a `bans.txt`
-   line, a new claim phrase, or a ledger/knowledge note) with the evidence quotes,
-   and writes it to `~/.claude/skills/handout/logs/proposals-YYYY-MM-DD.md`.
+3. It proposes only **macro, agnostic** improvements to the system — a new or
+   sharper gate, a general claim phrase — and writes them to
+   `~/.claude/skills/handout/logs/proposals-YYYY-MM-DD.md`. The bar is high and
+   the **default output is nothing**: most days produce no proposal, and that's the
+   preferred result. It will not manufacture suggestions, and it deliberately does
+   *not* propose case-specific bans (a particular library or variable) — those are
+   yours to add by hand, and they're often wrong later anyway.
 4. **You review it and decide.** It only proposes — it never edits your gates.
-   Approving means pasting the line into `bans.txt` yourself.
 
-**Why an LLM and not a keyword search?** Because friction is semantic. A regex can
-only surface patterns you already thought to write down — which is precisely what
-the flywheel exists to get past. The whole point is to let the model *understand*
-the corrections (including the ones you'd never have pre-listed) and turn them into
-rules. That costs one Claude call per night; that cost is the feature.
+**Why an LLM and not a keyword search?** Because the judgment that matters here is
+semantic: telling a systemic, reusable pattern apart from a one-off frustration,
+and knowing when to stay silent. A regex can't do either — it would fire on every
+match and surface only what someone already thought to list. The model reads the
+day, and most days correctly proposes nothing. That costs one Claude call per
+night; that restraint is the feature.
 
 Enable it with cron (note the `PATH` line — cron runs with a bare environment):
 

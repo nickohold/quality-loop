@@ -1,15 +1,7 @@
 #!/bin/bash
-# Cron entry point for the nightly friction compiler — the flywheel.
-#
-# This is LLM-POWERED on purpose. It gathers the day's operator messages
-# (cheap, programmatic) and then asks a headless `claude -p` run to UNDERSTAND
-# them and propose concrete rule deltas. Understanding friction is a semantic
-# job; a keyword search can only find patterns you already listed.
-#
-# Cost: one Claude call per night. That is the point — it buys comprehension.
-# It only PROPOSES (writes a markdown file); it never edits your gates.
-#
-# Enable with:  crontab -e   then add (note the PATH line, cron has a bare PATH):
+# Nightly flywheel: gather the day's operator messages, then let a headless
+# `claude -p` understand them and propose rule deltas (it only proposes).
+# Enable:  crontab -e   then add:
 #   PATH=/usr/local/bin:/usr/bin:/bin:$HOME/.claude/local
 #   0 7 * * *  /bin/bash ~/.claude/skills/handout/nightly-compile.sh
 QL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,38 +12,29 @@ OUT="logs/proposals-$DAY.md"
 
 CORPUS=$(python3 nightly-compile.py 2>>logs/compile-errors.log)
 if [ ! -s "$CORPUS" ]; then
-  printf '# Friction proposals — %s\n\nNo correction signals in the last 24h. Clean day.\n' "$DAY" > "$OUT"
-  echo "$(date '+%F %T') no signals -> $OUT" >> logs/compile.log
+  printf '# Friction proposals — %s\n\nNo correction signals in the last 24h.\n' "$DAY" > "$OUT"
   exit 0
 fi
 
 CLAUDE="$(command -v claude || echo "$HOME/.claude/local/claude")"
 if [ ! -x "$CLAUDE" ] && ! command -v claude >/dev/null 2>&1; then
-  echo "$(date '+%F %T') ERROR: 'claude' CLI not found on PATH" >> logs/compile.log
+  echo "$(date '+%F %T') ERROR: 'claude' CLI not found" >> logs/compile.log
   exit 1
 fi
 
 read -r -d '' PROMPT <<'EOF'
-You are auditing ONE day of an operator's own messages to an AI coding agent, to
-make a mechanical quality-gate system smarter. The corpus is on stdin; each block
-is something the OPERATOR typed (corrections, frustration, redirection), tagged
-with timestamp and repo.
+You are reviewing ONE day of an operator's own messages to an AI coding agent, to improve a GENERAL, cross-project quality-gate system. The corpus is on stdin; each block is something the OPERATOR typed.
 
-Your job — use judgment, do not keyword-match:
-1. Identify the recurring friction, INCLUDING novel kinds a regex would miss.
-   Infer intent: what did the agent do that the operator is reacting to?
-2. Cluster into a few themes, most impactful first.
-3. For each theme, propose ONE concrete, machine-enforceable delta the operator
-   can paste in to approve — prefer a kill-list line in EXACTLY this format:
-       kind::regex::message
-   where kind is one of: added_comment | type_in_class | concept | dependency | generic
-   …or a new claim phrase for the claim gate, or a decision-ledger / knowledge note
-   when no line-level rule fits.
-4. Be conservative: only propose rules that would not over-fire on innocent code.
+Your bar is HIGH and your default output is NOTHING. Most days produce no proposal — "No systemic proposals today." is a correct and preferred result. Do NOT manufacture suggestions to seem useful; do NOT force one per theme.
 
-Output a dated markdown proposal. Per theme: a one-line title, 1-2 verbatim
-quotes as evidence, why it recurs, and the exact delta to paste. No preamble.
-Do NOT edit any files — output the proposal only.
+Propose a change ONLY if it is ALL of:
+- MACRO & AGNOSTIC — it improves the system for ANY project or user. NOT a one-off ban on a specific library, variable name, file, or this repo's stack. (Case-specific bans are the operator's to add by hand — and they're often wrong later: a dependency killed in frustration today may be required tomorrow. Do not propose them.)
+- NEW or IMPROVING — it adds a capability the gates lack, or sharpens an existing check. Not a restatement of an in-the-moment frustration.
+- HIGH-CONFIDENCE — it will not over-fire on innocent work.
+
+For anything that clears the bar: state the systemic pattern (with 1-2 quotes), why it generalises beyond a single incident, and the concrete improvement — a new/changed gate, a general claim phrase, or an agnostic kill-list KIND (not a specific value). Skip everything project-specific.
+
+Output a short dated markdown note, or just the one line saying nothing cleared the bar. No preamble. Do NOT edit files.
 EOF
 
 {
@@ -59,5 +42,4 @@ EOF
   echo
   cat "$CORPUS" | "$CLAUDE" -p "$PROMPT" 2>>logs/compile-errors.log
 } > "$OUT"
-
 echo "$(date '+%F %T') wrote $OUT" >> logs/compile.log

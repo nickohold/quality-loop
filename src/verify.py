@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Run every gate against the current turn and aggregate.
-
-Usage:
-    python3 verify.py <transcript_path> <cwd>
-Prints a JSON object: {"pass": bool, "blocks": [...], "warnings": [...]}
-Gates in HARD_GATES block the turn; SOFT_GATES only warn.
-"""
+"""Run all gates against one turn. Usage: verify.py <transcript> <cwd> -> {"pass","blocks","warnings"}."""
 import json, sys, importlib, os
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -17,16 +11,9 @@ def main():
     tp = sys.argv[1] if len(sys.argv) > 1 else ""
     cwd = sys.argv[2] if len(sys.argv) > 2 else "."
     blocks, warnings = [], []
-    for name in HARD_GATES:
+    for name, sink in [(n, blocks) for n in HARD_GATES] + [(n, warnings) for n in SOFT_GATES]:
         try:
-            mod = importlib.import_module(name)
-            blocks += mod.run(tp, cwd)
-        except Exception as e:
-            warnings.append("gate %s errored: %s" % (name, e))
-    for name in SOFT_GATES:
-        try:
-            mod = importlib.import_module(name)
-            warnings += mod.run(tp, cwd)
+            sink += importlib.import_module(name).run(tp, cwd)
         except Exception as e:
             warnings.append("gate %s errored: %s" % (name, e))
     print(json.dumps({"pass": len(blocks) == 0, "blocks": blocks, "warnings": warnings}))
