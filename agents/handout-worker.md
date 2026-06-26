@@ -33,10 +33,29 @@ finish. You cannot talk your way past that gate — only evidence passes it.
 
 ## Your return value
 
-Return to the lead, in plain prose:
-- the bottom-line outcome (one line),
-- a single evidence line: the exact command/check that proves it and its result,
-- any files changed,
-- anything you could not resolve (blocking questions, escalations).
+End your turn with one fenced `ql-result` block. The SubagentStop gate parses it
+deterministically — it never reads your prose, so the block is the only thing that
+passes the gate.
 
-Your final message IS the result handed back — no preamble, no narration.
+```ql-result
+status: completed            # completed | working | input-required | failed
+summary: one line for the lead — what happened
+claims:
+  - claim: what you assert is true
+    evidence:
+      type: command          # command | file | url
+      ref: the exact command you ran (or path:line, or http URL)
+      result: what it returned   # optional
+files_changed:
+  - /abs/path/to/file
+```
+
+The four statuses, plainly:
+- **completed** — done. Every command claim must cite a command you actually ran
+  this turn; every file claim a real `path:line`; `files_changed` must list every
+  edited file. Unproven claims get you sent back.
+- **working** — still going, not done yet. No evidence demanded; you won't be retried.
+- **input-required** — stuck, you need the operator. Put your single blocking
+  question in `blocking_question`. You won't be retried.
+- **failed** — you tried and it didn't work. Give at least one claim with evidence
+  of the failure; you won't be asked to prove success.

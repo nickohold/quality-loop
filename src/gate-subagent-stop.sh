@@ -14,6 +14,18 @@ MARKER="$QL/state/active-$(printf '%s' "$CWD" | shasum -a 1 | cut -c1-16)"
 
 CNT="$QL/state/attempts-$AGENT"
 N=$(cat "$CNT" 2>/dev/null || echo 0)
+
+# Non-terminal results are not failures: never retry, never burn an attempt.
+STATUS=$(cd "$QL" && python3 gate_claims.py "$TRANSCRIPT" --status 2>/dev/null)
+if [ "$STATUS" = "working" ] || [ "$STATUS" = "input-required" ]; then
+  rm -f "$CNT"
+  if [ "$STATUS" = "input-required" ]; then
+    Q=$(cd "$QL" && python3 -c 'import sys,gate_claims as g; b=g.parse_block(g.qllib.last_assistant_text(g.qllib.read_lines(sys.argv[1]))) or {}; print(b.get("blocking_question",""))' "$TRANSCRIPT" 2>/dev/null)
+    echo "WORKER BLOCKED (input-required): $Q" >&2
+  fi
+  exit 0
+fi
+
 RESULT=$(cd "$QL" && python3 verify.py "$TRANSCRIPT" "$CWD" 2>/dev/null)
 [ -z "$RESULT" ] && exit 0
 mkdir -p "$QL/logs"

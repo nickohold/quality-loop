@@ -26,8 +26,7 @@ J
 echo "BAD turn:"
 R=$(cd "$SRC" && python3 verify.py "$TMP/bad.jsonl" "$BAD")
 assert_has "$R" '"pass": false' "verify reports pass:false"
-assert_has "$R" 'tests pass' "claim gate catches unproven 'tests pass'"
-assert_has "$R" 'merged' "claim gate catches unproven 'merged'"
+assert_has "$R" 'ql-result' "claim gate blocks a turn with no ql-result block"
 assert_has "$R" 'increment counter' "bans gate catches narrating comment"
 assert_has "$R" 'interface Bar' "bans gate catches type in service file"
 assert_has "$R" 'thesis' "altitude gate catches thesis answer to a question"
@@ -36,14 +35,67 @@ assert_has "$R" 'thesis' "altitude gate catches thesis answer to a question"
 GOOD="$TMP/good"; mkdir -p "$GOOD/src"; ( cd "$GOOD"; git init -q; git config user.email t@t.t; git config user.name t
   printf 'export const x = 1\n' > src/ok.ts; git add src/ok.ts; git commit -qm init
   printf 'export const x = 2\n' > src/ok.ts; git add src/ok.ts )
-cat > "$TMP/good.jsonl" <<'J'
+GOODFILE="$GOOD/src/ok.ts"
+cat > "$TMP/good.jsonl" <<J
 {"type":"user","message":{"role":"user","content":"fix the off-by-one in ok.ts"}}
 {"type":"assistant","message":{"content":[{"type":"text","text":"Working"},{"type":"tool_use","name":"Bash","input":{"command":"npm test -- ok.ts"}}]}}
-{"type":"assistant","message":{"content":[{"type":"text","text":"Done. Tests pass."}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"\`\`\`ql-result\nstatus: completed\nsummary: fixed off-by-one\nclaims:\n  - claim: tests pass\n    evidence:\n      type: command\n      ref: npm test -- ok.ts\n      result: ok\n  - claim: x is now 2\n    evidence:\n      type: file\n      ref: $GOODFILE:1\nfiles_changed:\n  - src/ok.ts\n\`\`\`"}]}}
 J
 echo "GOOD turn:"
 R=$(cd "$SRC" && python3 verify.py "$TMP/good.jsonl" "$GOOD")
-assert_has "$R" '"pass": true' "clean verified turn passes"
+assert_has "$R" '"pass": true' "completed turn with real command + file evidence passes"
+
+# ---------- completed claiming a command that never ran -> blocked ----------
+echo "Phantom-command turn:"
+cat > "$TMP/phantom.jsonl" <<'J'
+{"type":"user","message":{"role":"user","content":"fix it"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"```ql-result\nstatus: completed\nsummary: did it\nclaims:\n  - claim: tests pass\n    evidence:\n      type: command\n      ref: pytest -q\n      result: green\nfiles_changed:\n  - src/ok.ts\n```"}]}}
+J
+R=$(cd "$SRC" && python3 verify.py "$TMP/phantom.jsonl" "$GOOD")
+assert_has "$R" 'did NOT run' "completed claiming a command that never ran is blocked"
+
+# ---------- input-required exits clean and never retries ----------
+echo "input-required turn:"
+cat > "$TMP/inputreq.jsonl" <<'J'
+{"type":"user","message":{"role":"user","content":"do the thing"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"```ql-result\nstatus: input-required\nsummary: blocked on a decision\nblocking_question: which database should this target?\nclaims:\nfiles_changed:\n```"}]}}
+J
+R=$(cd "$SRC" && python3 verify.py "$TMP/inputreq.jsonl" "$GOOD")
+assert_has "$R" '"pass": true' "input-required with a blocking_question passes the claim gate"
+IKEY=$(printf '%s' "$GOOD" | shasum -a 1 | cut -c1-16)
+rm -f "$SRC/state/attempts-ir" ; touch "$SRC/state/active-$IKEY"
+printf '{"cwd":"%s","transcript_path":"%s/inputreq.jsonl","agent_id":"ir"}' "$GOOD" "$TMP" | bash "$SRC/gate-subagent-stop.sh" >/dev/null 2>&1; RC=$?
+[ "$RC" -eq 0 ] && ok "input-required exits clean (no retry)" || no "expected exit 0, got $RC"
+[ ! -f "$SRC/state/attempts-ir" ] && ok "input-required never burns an attempt" || no "attempt counter was written"
+rm -f "$SRC/state/active-$IKEY" "$SRC/state/attempts-ir"
+
+# ---------- input-required WITHOUT a blocking_question is blocked ----------
+echo "input-required missing question:"
+cat > "$TMP/noq.jsonl" <<'J'
+{"type":"user","message":{"role":"user","content":"do the thing"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"```ql-result\nstatus: input-required\nsummary: stuck\nblocking_question:\nclaims:\nfiles_changed:\n```"}]}}
+J
+R=$(cd "$SRC" && python3 gate_claims.py "$TMP/noq.jsonl" "$GOOD")
+assert_has "$R" 'blocking_question is empty' "input-required without a question is blocked"
+
+# ---------- failed is not asked for success evidence ----------
+echo "failed turn:"
+cat > "$TMP/failed.jsonl" <<'J'
+{"type":"user","message":{"role":"user","content":"build it"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"```ql-result\nstatus: failed\nsummary: could not build\nclaims:\n  - claim: build fails on missing dep\n    evidence:\n      type: command\n      ref: npm run build\n      result: error TS2307\nfiles_changed:\n```"}]}}
+J
+R=$(cd "$SRC" && python3 gate_claims.py "$TMP/failed.jsonl" "$GOOD")
+assert_empty "$R" "failed turn with failure evidence is not asked to prove success"
+
+# ---------- files_changed mismatch is caught ----------
+echo "Undeclared-edit turn:"
+cat > "$TMP/undeclared.jsonl" <<'J'
+{"type":"user","message":{"role":"user","content":"fix it"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"```ql-result\nstatus: completed\nsummary: done\nclaims:\n  - claim: looked at it\n    evidence:\n      type: file\n      ref: REPLACE:1\nfiles_changed:\n```"}]}}
+J
+sed -i.bak "s#REPLACE#$GOODFILE#" "$TMP/undeclared.jsonl"
+R=$(cd "$SRC" && python3 gate_claims.py "$TMP/undeclared.jsonl" "$GOOD")
+assert_has "$R" 'files_changed omits' "edited file missing from files_changed is caught"
 
 # ---------- Stop hook opt-in gating ----------
 echo "Stop hook:"
@@ -79,7 +131,7 @@ printf '{"cwd":"%s","transcript_path":"%s/bad.jsonl","agent_id":"t1"}' "$BAD" "$
 touch "$SRC/state/active-$KEY"
 ERR=$(printf '{"cwd":"%s","transcript_path":"%s/bad.jsonl","agent_id":"t1"}' "$BAD" "$TMP" | bash "$SRC/gate-subagent-stop.sh" 2>&1 >/dev/null); RC=$?
 [ "$RC" -eq 2 ] && ok "exit 2 forces worker to retry on failure" || no "expected exit 2, got $RC"
-assert_has "$ERR" 'tests pass' "failure reason names the unproven claim"
+assert_has "$ERR" 'ql-result' "failure reason names the missing ql-result block"
 # attempt cap: after MAX_ATTEMPTS, give up (exit 0)
 printf '{"cwd":"%s","transcript_path":"%s/bad.jsonl","agent_id":"t1"}' "$BAD" "$TMP" | bash "$SRC/gate-subagent-stop.sh" >/dev/null 2>&1
 printf '{"cwd":"%s","transcript_path":"%s/bad.jsonl","agent_id":"t1"}' "$BAD" "$TMP" | bash "$SRC/gate-subagent-stop.sh" >/dev/null 2>&1

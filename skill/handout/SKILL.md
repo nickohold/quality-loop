@@ -36,6 +36,13 @@ When the worker returns, give the operator one bottom-line sentence first, then 
 single evidence line (the command/check that proved it). No thesis — the Stop gate
 will bounce a report that buries the answer.
 
+The worker ends its turn with a fenced `ql-result` block carrying `status`
+(**completed** = done / **working** = still going / **input-required** = stuck,
+needs you / **failed** = tried and couldn't) plus per-claim evidence and
+`files_changed`. The SubagentStop gate validates that block, not the prose:
+completed claims must cite commands that actually ran; working and input-required
+pass clean and are never retried; input-required must carry a blocking question.
+
 ### 4. Disarm
 Once the task is delivered and accepted:
 ```bash
