@@ -1,0 +1,27 @@
+# Standing bans — checked against ADDED diff lines during a handed-out task.
+# Copy this to bans.txt and make it yours. Format:
+#   <kind>::<python-regex>::<human message>
+# kinds:
+#   added_comment  — narrating comments that restate the code
+#   type_in_class  — type/interface decls inside class/service files (only .service/.controller/.module/.class.[tj]s)
+#   concept        — a concept your team explicitly removed and never wants back
+#   dependency     — a library/service you do not want introduced
+#   generic        — any other line-level pattern
+# The nightly compiler proposes additions here for your approval.
+
+# --- Narrating comments (universal smell) ---
+added_comment::^\s*//\s*(set|get|return|increment|loop over|call|create|update|delete|check if|initialize|now |then |this )::No narrating comments. Code says what it does; comments say WHY, rarely.
+added_comment::^\s*#\s*(set|get|return|increment|loop over|call|create|update|check if|initialize|now |then )::No narrating comments. Code says what it does; comments say WHY, rarely.
+
+# --- Types/interfaces inside class/service files (a common convention) ---
+# Remove this line if your project co-locates types with classes.
+type_in_class::^\s*(export\s+)?(interface|type)\s+\w+::Keep type/interface declarations out of class/service files; put them in their own types file.
+
+# --- Unrequested dependencies (example) ---
+dependency::serpapi|SerpApi::This dependency was not requested. Do not add it without sign-off.
+
+# --- Project-specific concept kill-list (TEMPLATE — edit these) ---
+# A "concept" ban catches a name your team killed and never wants resurrected.
+# Replace the examples below with your own removed concepts:
+# concept::\blegacyAdapter\b::legacyAdapter was removed. Do not reintroduce it.
+# concept::\bglobalSingleton\b::The global singleton was dropped in favour of DI.
