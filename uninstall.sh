@@ -4,7 +4,7 @@
 set -euo pipefail
 
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
-QL="$CLAUDE_HOME/quality-loop"
+QL="$CLAUDE_HOME/skills/handout"
 SETTINGS="$CLAUDE_HOME/settings.json"
 
 if [ -f "$SETTINGS" ]; then
@@ -14,7 +14,8 @@ p = sys.argv[1]
 with open(p) as f:
     s = json.load(f)
 h = s.get("hooks", {})
-NEEDLES = ("quality-loop/merge-guard.sh", "quality-loop/inject-ledger.sh", "quality-loop/gate-stop.sh", "quality-loop/gate-subagent-stop.sh")
+NEEDLES = ("skills/handout/merge-guard.sh", "skills/handout/inject-ledger.sh", "skills/handout/gate-stop.sh", "skills/handout/gate-subagent-stop.sh",
+           "quality-loop/merge-guard.sh", "quality-loop/inject-ledger.sh", "quality-loop/gate-stop.sh", "quality-loop/gate-subagent-stop.sh")
 for event, arr in list(h.items()):
     kept = []
     for grp in arr:
@@ -29,7 +30,7 @@ PY
 fi
 
 rm -rf "$QL"
-rm -rf "$CLAUDE_HOME/skills/handout"
+rm -rf "$CLAUDE_HOME/quality-loop"   # legacy location, if present
 rm -f "$CLAUDE_HOME/commands/approve-merge.md"
 rm -f "$CLAUDE_HOME/agents/handout-worker.md"
 echo "Quality Loop uninstalled. (Your bans.txt and logs under $QL were removed too.)"

@@ -66,11 +66,13 @@ curl -fsSL https://raw.githubusercontent.com/nickohold/quality-loop/main/bootstr
 **Where it installs:** everything lands under your Claude Code config directory,
 `~/.claude` (override with `CLAUDE_HOME`):
 
-- `~/.claude/quality-loop/` — the engine (gates, verifier, config, logs)
-- `~/.claude/skills/handout/` — the `/handout` skill
+- `~/.claude/skills/handout/` — the self-contained skill: `SKILL.md` plus the whole engine (gates, verifier, config, state, logs) beside it
 - `~/.claude/agents/handout-worker.md` — the isolated worker
 - `~/.claude/commands/approve-merge.md` — the merge-approval command
-- three hook lines added to `~/.claude/settings.json`
+- four hook lines added to `~/.claude/settings.json` (PreToolUse, UserPromptSubmit, Stop, SubagentStop)
+
+(Upgrading from an older layout? The installer migrates a previous
+`~/.claude/quality-loop` install — keeping your `bans.txt` and logs — then removes it.)
 
 <details>
 <summary>From a clone, or for a private fork</summary>
@@ -100,7 +102,7 @@ settings.json is otherwise left alone).
 
 The "kill-list" is your list of things the agent must never write — patterns you've
 had to correct more than once and never want to see again. It lives in one file,
-`~/.claude/quality-loop/config/bans.txt`. The bans gate reads it and scans every
+`~/.claude/skills/handout/config/bans.txt`. The bans gate reads it and scans every
 diff; if a banned pattern shows up in newly-added lines, the turn is blocked.
 
 Each line is one rule with three parts separated by `::` —
@@ -132,37 +134,36 @@ cases — a plain word in the pattern slot matches that word.
 
 ## The flywheel (optional)
 
-`nightly-compile.py` is how the gates get smarter over time instead of staying
-frozen at whatever you set up on day one.
+This is how the gates get smarter over time instead of staying frozen at whatever
+you set up on day one — and it's **LLM-powered on purpose**.
 
 **What it does, step by step:**
 
-1. Once a day (via cron), it scans the Claude Code transcripts from the last 24
-   hours and pulls out *your* messages — the things you typed, not the agent's.
-2. It matches each message against a set of **friction patterns** — phrases that
-   signal you were correcting the agent (e.g. "I told you", "stop guessing",
-   "that's false", "you contradicted yourself", "too long").
-3. It groups the matches into labelled buckets and writes a dated report to
-   `~/.claude/quality-loop/logs/proposals-YYYY-MM-DD.md`, with the matching quotes
-   and a suggested rule change for each bucket — e.g. "add this to your kill-list."
-4. **You review it and decide.** It never edits your gates automatically; it only
-   proposes. Approving a proposal means copying a line into `bans.txt` or
-   `gate_claims.py` yourself.
+1. Once a day (via cron), `nightly-compile.py` gathers *your* messages from the
+   last 24 hours of transcripts — the things you typed, not the agent's. This part
+   is cheap and programmatic; it's just collecting the raw material.
+2. `nightly-compile.sh` hands that corpus to a headless `claude -p` run that
+   **reads and understands** it: what was the agent doing that you kept reacting
+   to? It clusters the friction into themes — including new kinds nobody listed in
+   advance.
+3. For each theme it proposes a concrete, paste-ready rule delta (a `bans.txt`
+   line, a new claim phrase, or a ledger/knowledge note) with the evidence quotes,
+   and writes it to `~/.claude/skills/handout/logs/proposals-YYYY-MM-DD.md`.
+4. **You review it and decide.** It only proposes — it never edits your gates.
+   Approving means pasting the line into `bans.txt` yourself.
 
-**Where do the labels come from?** They're a fixed list written into the script
-(the `SIGNALS` list in `nightly-compile.py`) — `repeated-instruction`, `guessing`,
-`verbosity`, `over-engineering`, `contradiction`, `wrong-tool`, `unauthorized`.
-Each label is just a name paired with a regex of trigger phrases. **No AI labels
-anything** — it's plain text matching, deterministic, and free (no model calls).
-The honest limitation: it can only surface friction it already has a pattern for.
-When you notice a new kind of correction it misses, you add a line to `SIGNALS`
-yourself.
+**Why an LLM and not a keyword search?** Because friction is semantic. A regex can
+only surface patterns you already thought to write down — which is precisely what
+the flywheel exists to get past. The whole point is to let the model *understand*
+the corrections (including the ones you'd never have pre-listed) and turn them into
+rules. That costs one Claude call per night; that cost is the feature.
 
-Enable it with cron:
+Enable it with cron (note the `PATH` line — cron runs with a bare environment):
 
 ```bash
 crontab -e
-# 0 7 * * *  /bin/bash ~/.claude/quality-loop/nightly-compile.sh
+# PATH=/usr/local/bin:/usr/bin:/bin:$HOME/.claude/local
+# 0 7 * * *  /bin/bash ~/.claude/skills/handout/nightly-compile.sh
 ```
 
 ## How it works under the hood
