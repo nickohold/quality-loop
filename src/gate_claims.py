@@ -1,17 +1,8 @@
 #!/usr/bin/env python3
-"""Claim gate — the #1 friction killer.
-
-If the assistant's final message asserts a verifiable claim ("tests pass",
-"merged", "deployed", "fixed", "the DB shows") and the current turn has NO
-matching tool-evidence, return a block finding.
-
-Tiered to avoid over-nagging:
-  HARD claims (tests pass / merged / deployed) ALWAYS need evidence.
-  SOFT claims (done / fixed / works) need evidence only when a diff exists.
-"""
+"""Claim gate: a verifiable claim with no matching tool-evidence this turn is blocked.
+HARD claims always need evidence; SOFT claims only when a diff exists."""
 import re, sys, qllib
 
-# claim phrase -> evidence command regex it requires in the turn
 HARD = {
     r"\b(all\s+)?tests?\s+(are\s+)?(pass|passing|green)\b": r"(test|jest|vitest|pytest|go test|cargo test|npm (run )?test|yarn test|pnpm test|mvn|gradle|rspec|phpunit)",
     r"\ball\s+green\b": r"(test|jest|vitest|pytest|npm (run )?test|yarn test|ci|lint)",
@@ -27,43 +18,35 @@ SOFT = {
 }
 
 def evidence_present(commands, all_tools, ev_regex):
-    blob = "\n".join(commands)
-    if re.search(ev_regex, blob, re.I):
+    if re.search(ev_regex, "\n".join(commands), re.I):
         return True
-    # A Read/Grep/Glob this turn counts as light evidence for soft claims
-    if any(t["name"] in ("Read", "Grep", "Glob") for t in all_tools):
-        return True
-    return False
+    return any(t["name"] in ("Read", "Grep", "Glob") for t in all_tools)
 
 def run(transcript_path, cwd):
     lines = qllib.read_lines(transcript_path)
     msg = qllib.last_assistant_text(lines)
     if not msg:
         return []
-    cmds = qllib.turn_bash_commands(lines)
     tools = qllib.turn_tool_uses(lines)
-    # If this turn delegated to a subagent, the worker's own SubagentStop gate
-    # enforced evidence there. Don't re-block the main thread for relaying it.
+    # Delegated work is enforced at the worker's SubagentStop gate, not here.
     if any(t["name"] in ("Agent", "Task", "Workflow") for t in tools):
         return []
+    cmds = qllib.turn_bash_commands(lines)
     has_diff = bool(qllib.git_diff(cwd).strip())
     findings = []
-
     for pat, ev in HARD.items():
-        if re.search(pat, msg, re.I) and not evidence_present(cmds, tools, ev):
-            m = re.search(pat, msg, re.I)
-            findings.append("Claimed \"%s\" with NO matching tool-evidence this turn. Run the check (%s) or downgrade the claim to 'unverified'."
+        m = re.search(pat, msg, re.I)
+        if m and not evidence_present(cmds, tools, ev):
+            findings.append("Claimed \"%s\" with NO matching tool-evidence this turn. Run the check (%s) or mark it unverified."
                             % (m.group(0).strip(), ev.split('|')[0].strip('(')))
     if has_diff:
         for pat, ev in SOFT.items():
-            if re.search(pat, msg, re.I) and not evidence_present(cmds, tools, ev):
-                m = re.search(pat, msg, re.I)
-                findings.append("Claimed \"%s\" but there is an uncommitted diff and no verification ran this turn. Prove it or say it's unverified."
+            m = re.search(pat, msg, re.I)
+            if m and not evidence_present(cmds, tools, ev):
+                findings.append("Claimed \"%s\" with an uncommitted diff and no verification this turn. Prove it or mark it unverified."
                                 % m.group(0).strip())
     return findings
 
 if __name__ == "__main__":
-    tp = sys.argv[1] if len(sys.argv) > 1 else ""
-    cwd = sys.argv[2] if len(sys.argv) > 2 else "."
-    for f in run(tp, cwd):
+    for f in run(sys.argv[1] if len(sys.argv) > 1 else "", sys.argv[2] if len(sys.argv) > 2 else "."):
         print(f)

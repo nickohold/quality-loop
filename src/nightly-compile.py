@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
-"""Gather the last 24h of the operator's typed messages into a corpus file.
-
-This is the cheap, programmatic HALF of the flywheel — it only collects the raw
-material. The UNDERSTANDING is done by an LLM (`claude -p`) in nightly-compile.sh,
-because friction is semantic: a keyword match can only find patterns someone
-already thought to list, which is exactly what the flywheel exists to get past.
-
-Prints the corpus path on stdout; a one-line summary on stderr.
-"""
+"""Gather the last 24h of operator messages into a corpus file for the LLM compiler.
+Cheap, programmatic; the understanding happens in nightly-compile.sh via claude -p."""
 import os, glob, json, time, sys, qllib
 
 PROJECTS = os.path.expanduser("~/.claude/projects/")
@@ -37,17 +30,14 @@ def main():
                     except: continue
                     if o.get("type") != "user": continue
                     m = o.get("message")
-                    if not isinstance(m, dict) or m.get("role") != "user": continue
-                    if o.get("isSidechain"): continue
+                    if not isinstance(m, dict) or m.get("role") != "user" or o.get("isSidechain"): continue
                     t = text_of(m.get("content")).strip()
                     if not t or t.startswith("<") or "[Request interrupted" in t[:40]:
                         continue
-                    ts = o.get("timestamp", "")[:16]
                     repo = f.replace(PROJECTS, "").split("/")[0]
-                    rows.append("===[%s|%s]===\n%s" % (ts, repo, t[:2000]))
+                    rows.append("===[%s|%s]===\n%s" % (o.get("timestamp", "")[:16], repo, t[:2000]))
         except Exception:
             continue
-
     state = os.path.join(qllib.QL_DIR, "state")
     os.makedirs(state, exist_ok=True)
     corpus = os.path.join(state, "nightly-corpus.txt")

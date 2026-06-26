@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""Shared helpers for the quality-loop gates.
-
-Everything keys off the Claude Code transcript (.jsonl). A "turn" is the slice
-of assistant activity since the LAST real user message — that is the window in
-which a claim must have its evidence.
-
-Paths are self-locating: QL_DIR is the directory this file lives in, so the
-package works wherever it is installed (no hardcoded ~/.claude).
-"""
+"""Shared helpers for the gates. QL_DIR is self-locating so the package runs wherever it's installed."""
 import json, os, subprocess, hashlib, re
 
 QL_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -32,21 +24,15 @@ def _text_of(content):
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        parts = []
-        for b in content:
-            if isinstance(b, dict) and b.get("type") == "text":
-                parts.append(b.get("text", ""))
-        return "\n".join(parts)
+        return "\n".join(b.get("text", "") for b in content
+                         if isinstance(b, dict) and b.get("type") == "text")
     return ""
 
 def _is_real_user(o):
-    """A real typed user message — not a tool_result, not a system reminder."""
     if o.get("type") != "user":
         return False
     m = o.get("message")
-    if not isinstance(m, dict) or m.get("role") != "user":
-        return False
-    if o.get("isSidechain"):
+    if not isinstance(m, dict) or m.get("role") != "user" or o.get("isSidechain"):
         return False
     c = m.get("content")
     if isinstance(c, list):
@@ -77,19 +63,16 @@ def last_user_index(lines):
 def last_assistant_text(lines):
     for o in reversed(lines):
         if o.get("type") == "assistant":
-            m = o.get("message", {})
-            return _text_of(m.get("content")).strip()
+            return _text_of(o.get("message", {}).get("content")).strip()
     return ""
 
 def turn_tool_uses(lines):
-    """All assistant tool_use blocks since the last real user message."""
-    start = last_user_index(lines)
+    """Assistant tool_use blocks since the last real user message."""
     uses = []
-    for o in lines[start:]:
+    for o in lines[last_user_index(lines):]:
         if o.get("type") != "assistant":
             continue
-        m = o.get("message", {})
-        c = m.get("content")
+        c = o.get("message", {}).get("content")
         if isinstance(c, list):
             for b in c:
                 if isinstance(b, dict) and b.get("type") == "tool_use":
@@ -97,33 +80,23 @@ def turn_tool_uses(lines):
     return uses
 
 def turn_bash_commands(lines):
-    cmds = []
-    for u in turn_tool_uses(lines):
-        if u["name"] == "Bash":
-            cmds.append(str(u["input"].get("command", "")))
-    return cmds
+    return [str(u["input"].get("command", "")) for u in turn_tool_uses(lines) if u["name"] == "Bash"]
 
 def git_diff(cwd):
-    try:
-        a = subprocess.run(["git", "diff", "HEAD"], cwd=cwd, capture_output=True,
-                           text=True, timeout=10).stdout
-    except Exception:
-        a = ""
-    try:
-        b = subprocess.run(["git", "diff", "--cached"], cwd=cwd, capture_output=True,
-                           text=True, timeout=10).stdout
-    except Exception:
-        b = ""
-    return a + b
+    out = ""
+    for args in (["git", "diff", "HEAD"], ["git", "diff", "--cached"]):
+        try:
+            out += subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10).stdout
+        except Exception:
+            pass
+    return out
 
 def changed_files(cwd):
     files = set()
     for args in (["git", "diff", "--name-only", "HEAD"], ["git", "diff", "--cached", "--name-only"]):
         try:
             r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10).stdout
-            for ln in r.splitlines():
-                if ln.strip():
-                    files.add(ln.strip())
+            files.update(ln.strip() for ln in r.splitlines() if ln.strip())
         except Exception:
             pass
     return sorted(files)
@@ -138,29 +111,20 @@ def loop_active(cwd):
     return os.path.exists(marker_path(cwd))
 
 def load_list(name):
-    """Load a config list file, ignoring blanks and # comments.
-
-    Falls back to the shipped <name>.example file so the gates are active
-    immediately after install, before the user has customised their own copy.
-    """
+    """Load a config list; fall back to the shipped .example so gates work pre-customisation."""
     cfg = os.path.join(QL_DIR, "config")
     candidates = [os.path.join(cfg, name)]
     if name.endswith(".txt"):
         candidates.append(os.path.join(cfg, name[:-4] + ".example.txt"))
-    items = []
     for p in candidates:
         if not os.path.exists(p):
             continue
         try:
             with open(p) as fh:
-                for ln in fh:
-                    ln = ln.strip()
-                    if ln and not ln.startswith("#"):
-                        items.append(ln)
-            break
+                return [ln.strip() for ln in fh if ln.strip() and not ln.startswith("#")]
         except Exception:
             pass
-    return items
+    return []
 
 def ledger_path(cwd):
     return os.path.join(QL_DIR, "decisions", "ledger-" + cwd_key(cwd) + ".md")
