@@ -57,11 +57,20 @@ new friction. You promote a gate to always-on yourself once it's earned it.
 
 Requires [Claude Code](https://claude.com/claude-code), `python3`, and `jq`.
 
-One command, no clone:
+Install with one command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nickohold/quality-loop/main/bootstrap.sh | bash
 ```
+
+**Where it installs:** everything lands under your Claude Code config directory,
+`~/.claude` (override with `CLAUDE_HOME`):
+
+- `~/.claude/quality-loop/` — the engine (gates, verifier, config, logs)
+- `~/.claude/skills/handout/` — the `/handout` skill
+- `~/.claude/agents/handout-worker.md` — the isolated worker
+- `~/.claude/commands/approve-merge.md` — the merge-approval command
+- three hook lines added to `~/.claude/settings.json`
 
 <details>
 <summary>From a clone, or for a private fork</summary>
@@ -87,16 +96,69 @@ settings.json is otherwise left alone).
 
 ## Make it yours
 
-- **Kill-list:** edit `~/.claude/quality-loop/config/bans.txt` (`<kind>::<regex>::<message>`). Start from [`bans.example.txt`](src/config/bans.example.txt).
-- **Altitude strictness:** `QL_MAX_LINES` env var (default 14).
-- **Scope thresholds:** `QL_MAX_FILES`, `QL_MAX_AGENTS`, `QL_MAX_BG`.
-- **Claim vocabulary:** the `HARD`/`SOFT` dicts in `src/gate_claims.py`.
+### The kill-list
+
+The "kill-list" is your list of things the agent must never write — patterns you've
+had to correct more than once and never want to see again. It lives in one file,
+`~/.claude/quality-loop/config/bans.txt`. The bans gate reads it and scans every
+diff; if a banned pattern shows up in newly-added lines, the turn is blocked.
+
+Each line is one rule with three parts separated by `::` —
+
+```
+kind::pattern-to-match::message shown when it's caught
+```
+
+- **kind** — a category tag: `added_comment`, `type_in_class`, `concept`, `dependency`, or `generic`.
+- **pattern-to-match** — the text/regex to look for in added code.
+- **message** — what the agent sees when it trips, telling it what to do instead.
+
+A concrete example — ban a variable name your team deleted and never wants back:
+
+```
+concept::\blegacyClient\b::legacyClient was removed. Use the new client instead.
+```
+
+Copy the shipped [`bans.example.txt`](src/config/bans.example.txt) to `bans.txt`
+and edit it; the examples there cover the common cases (narrating comments,
+misplaced types, unwanted dependencies). You don't need to know regex for simple
+cases — a plain word in the pattern slot matches that word.
+
+### Other knobs
+
+- **Altitude strictness:** `QL_MAX_LINES` env var — how long a reply to a *question* can be before it's flagged (default 14 lines).
+- **Scope thresholds:** `QL_MAX_FILES` (small-ask diff size), `QL_MAX_AGENTS`, `QL_MAX_BG` (runaway fan-out).
+- **Claim vocabulary:** the phrases that demand evidence ("tests pass", "deployed", …) live in the `HARD`/`SOFT` lists in `src/gate_claims.py`.
 
 ## The flywheel (optional)
 
-`nightly-compile.py` mines each day's transcripts for new corrections and writes
-a dated proposal of rule deltas to review — so the gates get smarter over time.
-Pure file mining, no LLM cost. Enable with cron:
+`nightly-compile.py` is how the gates get smarter over time instead of staying
+frozen at whatever you set up on day one.
+
+**What it does, step by step:**
+
+1. Once a day (via cron), it scans the Claude Code transcripts from the last 24
+   hours and pulls out *your* messages — the things you typed, not the agent's.
+2. It matches each message against a set of **friction patterns** — phrases that
+   signal you were correcting the agent (e.g. "I told you", "stop guessing",
+   "that's false", "you contradicted yourself", "too long").
+3. It groups the matches into labelled buckets and writes a dated report to
+   `~/.claude/quality-loop/logs/proposals-YYYY-MM-DD.md`, with the matching quotes
+   and a suggested rule change for each bucket — e.g. "add this to your kill-list."
+4. **You review it and decide.** It never edits your gates automatically; it only
+   proposes. Approving a proposal means copying a line into `bans.txt` or
+   `gate_claims.py` yourself.
+
+**Where do the labels come from?** They're a fixed list written into the script
+(the `SIGNALS` list in `nightly-compile.py`) — `repeated-instruction`, `guessing`,
+`verbosity`, `over-engineering`, `contradiction`, `wrong-tool`, `unauthorized`.
+Each label is just a name paired with a regex of trigger phrases. **No AI labels
+anything** — it's plain text matching, deterministic, and free (no model calls).
+The honest limitation: it can only surface friction it already has a pattern for.
+When you notice a new kind of correction it misses, you add a line to `SIGNALS`
+yourself.
+
+Enable it with cron:
 
 ```bash
 crontab -e
