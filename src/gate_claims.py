@@ -42,6 +42,10 @@ def run(transcript_path, cwd):
         return []
     cmds = qllib.turn_bash_commands(lines)
     tools = qllib.turn_tool_uses(lines)
+    # If this turn delegated to a subagent, the worker's own SubagentStop gate
+    # enforced evidence there. Don't re-block the main thread for relaying it.
+    if any(t["name"] in ("Agent", "Task", "Workflow") for t in tools):
+        return []
     has_diff = bool(qllib.git_diff(cwd).strip())
     findings = []
 

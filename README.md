@@ -57,11 +57,23 @@ new friction. You promote a gate to always-on yourself once it's earned it.
 
 Requires [Claude Code](https://claude.com/claude-code), `python3`, and `jq`.
 
+One command, no clone:
+
 ```bash
-git clone https://github.com/nickohold/quality-loop.git
-cd quality-loop
-./install.sh           # copies into ~/.claude and wires the hooks
+curl -fsSL https://raw.githubusercontent.com/nickohold/quality-loop/main/bootstrap.sh | bash
 ```
+
+<details>
+<summary>From a clone, or for a private fork</summary>
+
+```bash
+# from a clone
+git clone https://github.com/nickohold/quality-loop.git && cd quality-loop && ./install.sh
+
+# private repo, using your GitHub CLI auth
+gh api repos/nickohold/quality-loop/contents/bootstrap.sh -H "Accept: application/vnd.github.raw" | bash
+```
+</details>
 
 Restart Claude Code. Then, in any project:
 
