@@ -11,6 +11,20 @@ talk its way past**. It was reverse-engineered from months of real transcripts:
 find where the agent actually fails, then build a gate exactly there. See
 [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
+## Contents
+
+- [The problem](#the-problem)
+- [What it does](#what-it-does)
+  - [Opt-in by design](#opt-in-by-design)
+- [Install](#install)
+- [Make it yours](#make-it-yours)
+  - [The kill-list](#the-kill-list)
+  - [Other knobs](#other-knobs)
+- [The flywheel (optional)](#the-flywheel-optional)
+- [How it works under the hood](#how-it-works-under-the-hood)
+- [Tests](#tests)
+- [License](#license)
+
 ---
 
 ## The problem
@@ -57,11 +71,22 @@ new friction. You promote a gate to always-on yourself once it's earned it.
 
 Requires [Claude Code](https://claude.com/claude-code), `python3`, and `jq`.
 
-One command, no clone:
+Install with one command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nickohold/quality-loop/main/bootstrap.sh | bash
 ```
+
+**Where it installs:** everything lands under your Claude Code config directory,
+`~/.claude` (override with `CLAUDE_HOME`):
+
+- `~/.claude/skills/handout/` — the self-contained skill: `SKILL.md` plus the whole engine (gates, verifier, config, state, logs) beside it
+- `~/.claude/agents/handout-worker.md` — the isolated worker
+- `~/.claude/commands/approve-merge.md` — the merge-approval command
+- four hook lines added to `~/.claude/settings.json` (PreToolUse, UserPromptSubmit, Stop, SubagentStop)
+
+(Upgrading from an older layout? The installer migrates a previous
+`~/.claude/quality-loop` install — keeping your `bans.txt` and logs — then removes it.)
 
 <details>
 <summary>From a clone, or for a private fork</summary>
@@ -87,20 +112,72 @@ settings.json is otherwise left alone).
 
 ## Make it yours
 
-- **Kill-list:** edit `~/.claude/quality-loop/config/bans.txt` (`<kind>::<regex>::<message>`). Start from [`bans.example.txt`](src/config/bans.example.txt).
-- **Altitude strictness:** `QL_MAX_LINES` env var (default 14).
-- **Scope thresholds:** `QL_MAX_FILES`, `QL_MAX_AGENTS`, `QL_MAX_BG`.
-- **Claim vocabulary:** the `HARD`/`SOFT` dicts in `src/gate_claims.py`.
+### The kill-list
+
+The "kill-list" is your list of things the agent must never write — patterns you've
+had to correct more than once and never want to see again. It lives in one file,
+`~/.claude/skills/handout/config/bans.txt`. The bans gate reads it and scans every
+diff; if a banned pattern shows up in newly-added lines, the turn is blocked.
+
+Each line is one rule with three parts separated by `::` —
+
+```
+kind::pattern-to-match::message shown when it's caught
+```
+
+- **kind** — a category tag: `added_comment`, `type_in_class`, `concept`, `dependency`, or `generic`.
+- **pattern-to-match** — the text/regex to look for in added code.
+- **message** — what the agent sees when it trips, telling it what to do instead.
+
+A concrete example — ban a variable name your team deleted and never wants back:
+
+```
+concept::\blegacyClient\b::legacyClient was removed. Use the new client instead.
+```
+
+Copy the shipped [`bans.example.txt`](src/config/bans.example.txt) to `bans.txt`
+and edit it; the examples there cover the common cases (narrating comments,
+misplaced types, unwanted dependencies). You don't need to know regex for simple
+cases — a plain word in the pattern slot matches that word.
+
+### Other knobs
+
+- **Altitude strictness:** `QL_MAX_LINES` env var — how long a reply to a *question* can be before it's flagged (default 14 lines).
+- **Scope thresholds:** `QL_MAX_FILES` (small-ask diff size), `QL_MAX_AGENTS`, `QL_MAX_BG` (runaway fan-out).
+- **Claim vocabulary:** the phrases that demand evidence ("tests pass", "deployed", …) live in the `HARD`/`SOFT` lists in `src/gate_claims.py`.
 
 ## The flywheel (optional)
 
-`nightly-compile.py` mines each day's transcripts for new corrections and writes
-a dated proposal of rule deltas to review — so the gates get smarter over time.
-Pure file mining, no LLM cost. Enable with cron:
+This is how the gates get smarter over time instead of staying frozen at whatever
+you set up on day one — and it's **LLM-powered on purpose**.
+
+**What it does, step by step:**
+
+1. Once a day (via cron), `nightly-compile.py` gathers *your* messages from the
+   last 24 hours of transcripts — the things you typed, not the agent's. This part
+   is cheap and programmatic; it's just collecting the raw material.
+2. `nightly-compile.sh` hands that corpus to a headless `claude -p` run that
+   **reads and understands** it: what was the agent doing that you kept reacting
+   to? It clusters the friction into themes — including new kinds nobody listed in
+   advance.
+3. For each theme it proposes a concrete, paste-ready rule delta (a `bans.txt`
+   line, a new claim phrase, or a ledger/knowledge note) with the evidence quotes,
+   and writes it to `~/.claude/skills/handout/logs/proposals-YYYY-MM-DD.md`.
+4. **You review it and decide.** It only proposes — it never edits your gates.
+   Approving means pasting the line into `bans.txt` yourself.
+
+**Why an LLM and not a keyword search?** Because friction is semantic. A regex can
+only surface patterns you already thought to write down — which is precisely what
+the flywheel exists to get past. The whole point is to let the model *understand*
+the corrections (including the ones you'd never have pre-listed) and turn them into
+rules. That costs one Claude call per night; that cost is the feature.
+
+Enable it with cron (note the `PATH` line — cron runs with a bare environment):
 
 ```bash
 crontab -e
-# 0 7 * * *  /bin/bash ~/.claude/quality-loop/nightly-compile.sh
+# PATH=/usr/local/bin:/usr/bin:/bin:$HOME/.claude/local
+# 0 7 * * *  /bin/bash ~/.claude/skills/handout/nightly-compile.sh
 ```
 
 ## How it works under the hood

@@ -4,7 +4,7 @@ description: Run a handed-out task under the quality loop — arms the gates det
 allowed-tools: Bash(touch *), Bash(mkdir *)
 ---
 
-!`mkdir -p ~/.claude/quality-loop/state && touch ~/.claude/quality-loop/state/active-$(printf '%s' "$PWD" | shasum -a 1 | cut -c1-16)`
+!`mkdir -p ~/.claude/skills/handout/state && touch ~/.claude/skills/handout/state/active-$(printf '%s' "$PWD" | shasum -a 1 | cut -c1-16)`
 
 # Handout — the trusted task loop
 
@@ -28,7 +28,7 @@ checks your turn. For anything larger, delegate to the worker.
 When something is settled ("drop X", "park in a branch", "no Y"), persist it so it
 cannot be silently reopened:
 ```bash
-python3 ~/.claude/quality-loop/decision_ledger.py add "$PWD" "drop the legacy adapter"
+python3 ~/.claude/skills/handout/decision_ledger.py add "$PWD" "drop the legacy adapter"
 ```
 
 ### 3. Report at the right altitude
@@ -40,8 +40,8 @@ will bounce a report that buries the answer.
 Once the task is delivered and accepted:
 ```bash
 KEY=$(printf '%s' "$PWD" | shasum -a 1 | cut -c1-16)
-rm -f ~/.claude/quality-loop/state/active-$KEY
-python3 ~/.claude/quality-loop/decision_ledger.py clear "$PWD"
+rm -f ~/.claude/skills/handout/state/active-$KEY
+python3 ~/.claude/skills/handout/decision_ledger.py clear "$PWD"
 ```
 (If you forget, the marker self-expires after 3 hours so it never nags.)
 
