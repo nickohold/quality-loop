@@ -68,6 +68,33 @@ assert_empty "$OUT" "allows with one-shot token"
 OUT=$(printf '{"tool_input":{"command":"ls -la"}}' | bash "$SRC/merge-guard.sh")
 assert_empty "$OUT" "normal command passes"
 
+# ---------- SubagentStop verifier: exit 2 on failure, with marker ----------
+echo "SubagentStop verifier:"
+KEY=$(printf '%s' "$BAD" | shasum -a 1 | cut -c1-16)
+rm -f "$SRC/state/active-$KEY" "$SRC/state/attempts-"*
+printf '{"cwd":"%s","transcript_path":"%s/bad.jsonl","agent_id":"t1"}' "$BAD" "$TMP" | bash "$SRC/gate-subagent-stop.sh" 2>/dev/null
+[ "$?" -eq 0 ] && ok "silent (exit 0) when no marker" || no "should be silent without marker"
+touch "$SRC/state/active-$KEY"
+ERR=$(printf '{"cwd":"%s","transcript_path":"%s/bad.jsonl","agent_id":"t1"}' "$BAD" "$TMP" | bash "$SRC/gate-subagent-stop.sh" 2>&1 >/dev/null); RC=$?
+[ "$RC" -eq 2 ] && ok "exit 2 forces worker to retry on failure" || no "expected exit 2, got $RC"
+assert_has "$ERR" 'tests pass' "failure reason names the unproven claim"
+# attempt cap: after MAX_ATTEMPTS, give up (exit 0)
+printf '{"cwd":"%s","transcript_path":"%s/bad.jsonl","agent_id":"t1"}' "$BAD" "$TMP" | bash "$SRC/gate-subagent-stop.sh" >/dev/null 2>&1
+printf '{"cwd":"%s","transcript_path":"%s/bad.jsonl","agent_id":"t1"}' "$BAD" "$TMP" | bash "$SRC/gate-subagent-stop.sh" >/dev/null 2>&1
+printf '{"cwd":"%s","transcript_path":"%s/bad.jsonl","agent_id":"t1"}' "$BAD" "$TMP" | bash "$SRC/gate-subagent-stop.sh" >/dev/null 2>&1; RC=$?
+[ "$RC" -eq 0 ] && ok "attempt cap stops the loop (exit 0 after max)" || no "attempt cap failed, got $RC"
+rm -f "$SRC/state/active-$KEY" "$SRC/state/attempts-"*
+
+# ---------- claim gate trusts delegated work ----------
+echo "Delegation skip:"
+cat > "$TMP/deleg.jsonl" <<'J'
+{"type":"user","message":{"role":"user","content":"do the migration"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Delegating."},{"type":"tool_use","name":"Agent","input":{"prompt":"migrate it"}}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Done. All tests pass and it is deployed."}]}}
+J
+R=$(cd "$SRC" && python3 gate_claims.py "$TMP/deleg.jsonl" "$GOOD")
+assert_empty "$R" "main thread not blocked for relaying a delegated worker's result"
+
 echo
 echo "==== $PASS passed, $FAIL failed ===="
 [ "$FAIL" -eq 0 ]

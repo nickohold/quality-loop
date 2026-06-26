@@ -20,6 +20,8 @@ MARKER="$QL/state/active-$KEY"
 
 # Not in a handed-out task -> do nothing (no global nag).
 [ -f "$MARKER" ] || exit 0
+# Stale marker (loop forgot to disarm) -> ignore so it can't nag forever.
+[ -n "$(find "$MARKER" -mmin +180 2>/dev/null)" ] && exit 0
 
 RESULT=$(cd "$QL" && python3 verify.py "$TRANSCRIPT" "$CWD" 2>/dev/null)
 [ -z "$RESULT" ] && exit 0

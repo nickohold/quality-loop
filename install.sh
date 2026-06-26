@@ -20,10 +20,11 @@ cp "$REPO"/src/config/bans.example.txt "$QL"/config/
 [ -f "$QL/config/bans.txt" ] || cp "$REPO"/src/config/bans.example.txt "$QL/config/bans.txt"
 chmod +x "$QL"/*.sh "$QL"/*.py
 
-# 2. Skill + command
-mkdir -p "$CLAUDE_HOME/skills/handout" "$CLAUDE_HOME/commands"
+# 2. Skill + command + worker agent
+mkdir -p "$CLAUDE_HOME/skills/handout" "$CLAUDE_HOME/commands" "$CLAUDE_HOME/agents"
 cp "$REPO"/skill/handout/SKILL.md "$CLAUDE_HOME/skills/handout/"
 cp "$REPO"/commands/approve-merge.md "$CLAUDE_HOME/commands/"
+cp "$REPO"/agents/handout-worker.md "$CLAUDE_HOME/agents/"
 
 # 3. Wire hooks into settings.json (idempotent)
 SETTINGS="$CLAUDE_HOME/settings.json"
@@ -52,6 +53,7 @@ changed = False
 changed |= ensure("PreToolUse", "Bash", "bash ~/.claude/quality-loop/merge-guard.sh", 5)
 changed |= ensure("UserPromptSubmit", None, "bash ~/.claude/quality-loop/inject-ledger.sh", 5)
 changed |= ensure("Stop", None, "bash ~/.claude/quality-loop/gate-stop.sh", 20)
+changed |= ensure("SubagentStop", None, "bash ~/.claude/quality-loop/gate-subagent-stop.sh", 20)
 
 with open(p, "w") as f:
     json.dump(s, f, indent=2)
