@@ -31,10 +31,11 @@ fi
 [ -f "$QL/config/bans.txt" ] || cp "$REPO"/src/config/bans.example.txt "$QL/config/bans.txt"
 chmod +x "$QL"/*.sh "$QL"/*.py
 
-# 2. Worker agent + command
+# 2. Agents (builder + adversarial verifier) + command
 mkdir -p "$CLAUDE_HOME/commands" "$CLAUDE_HOME/agents"
 cp "$REPO"/commands/approve-merge.md "$CLAUDE_HOME/commands/"
 cp "$REPO"/agents/handout-worker.md "$CLAUDE_HOME/agents/"
+cp "$REPO"/agents/handout-verifier.md "$CLAUDE_HOME/agents/"
 
 # 3. Wire hooks into settings.json (idempotent; strips any old quality-loop hooks)
 SETTINGS="$CLAUDE_HOME/settings.json"
