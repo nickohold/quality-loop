@@ -1,18 +1,30 @@
 # Quality Loop
 
-**A mechanical safety net for handing tasks to an AI coding agent.**
+**The verification stage of a development loop — the part that proves a handed-off
+task came back up to par, instead of taking the agent's word for it.**
 
-Hand out a task. Be sure the result is up to par — without policing every line
-yourself.
+A sound development loop has three moves: **specify** the task, **hand it off** to a
+coding agent, and **verify** what comes back. Quality Loop is the third move, plus
+the handoff that makes it enforceable. It is deliberately *one part* of a larger
+process — and it is worth being precise about which part.
 
-Quality Loop is a small set of [Claude Code](https://claude.com/claude-code)
-hooks and a skill that put a coding agent's output through **verifiers it cannot
-talk its way past**. It was reverse-engineered from months of real transcripts:
-find where the agent actually fails, then build a gate exactly there. See
-[docs/METHODOLOGY.md](docs/METHODOLOGY.md).
+**What it is:** a small set of [Claude Code](https://claude.com/claude-code) hooks
+and a skill that put a coding agent's output through **verifiers it cannot talk its
+way past** — claims must cite evidence that actually ran, patterns on your kill-list
+cannot land, and irreversible actions are stopped until you approve them. You read
+the result once it is provably clean, instead of policing every line yourself.
+
+**What it is not:** it does not specify, design, scope, or plan the work for you. It
+assumes a task has already been defined and handed off. The quality of what comes
+out is still bounded by the quality of what you put in — hand off a vague task and
+the gates faithfully verify a vague result. Specification and design are their own
+part of the loop, upstream of this one.
+
+See [docs/METHODOLOGY.md](docs/METHODOLOGY.md) for how the gates were chosen.
 
 ## Contents
 
+- [Where this fits in the loop](#where-this-fits-in-the-loop)
 - [The problem](#the-problem)
 - [What it does](#what-it-does)
   - [Opt-in by design](#opt-in-by-design)
@@ -26,6 +38,24 @@ find where the agent actually fails, then build a gate exactly there. See
 - [License](#license)
 
 ---
+
+## Where this fits in the loop
+
+```
+   specify  ─────────▶   hand off   ─────────▶   verify
+   the task              to an agent             the result
+   (you, a ticket,    ┌──────────────────────────────────┐
+    another tool)     │   THIS REPO                       │
+                      │   /handout  +  the gates          │
+                      └──────────────────────────────────┘
+```
+
+This repo owns the boxed part — the handoff and the verification of what comes
+back. The **specify** step is a real and equally important part of the loop, but
+it lives elsewhere: in your head, a ticket, or another tool. Hand off a sharp
+task and the gates guarantee a sharp, evidence-backed result; hand off a vague
+one and they faithfully verify a vague one. Quality Loop makes the result
+trustworthy; it does not make the task good — that is the part before this.
 
 ## The problem
 
@@ -187,22 +217,33 @@ crontab -e
 ## How it works under the hood
 
 Every gate reads the session transcript (`.jsonl`) and the working tree's `git
-diff`. A "turn" is the slice of agent activity since your last message — the
-window in which a claim must have its evidence. `verify.py` runs all gates and
-aggregates a `{pass, blocks, warnings}` verdict; the Stop hook turns a failing
-verdict into a block. Nothing depends on the model choosing to behave.
+diff`. A "turn" is the slice of agent activity since the last message — the
+window in which a claim must have its evidence. `verify.py` runs the gates for the
+current role and aggregates a `{pass, blocks, warnings}` verdict.
+
+The verdict is enforced in **two places**, with a role-specific gate set:
+
+- When the isolated worker finishes its turn (`SubagentStop`, role `worker`), its
+  output is gated by **claims + bans + altitude** before it can return to you — a
+  failing verdict sends it back to fix and finish again.
+- When your own report finishes (`Stop`, role `lead`), it's gated by **bans +
+  altitude** — the claims gate is skipped, since the lead writes prose to you
+  rather than doing the work itself.
+
+The `scope` gate runs in both as a warning. Nothing depends on the model choosing
+to behave.
 
 ```
-you ──/handout──▶ agent works ──▶ tries to finish
-                                      │
-                              Stop hook runs verify.py
-                                      │
-                   ┌──────────────────┴──────────────────┐
-                   ▼                                      ▼
-              all gates pass                        a gate blocks
-                   │                                      │
-              you see the result            agent sees the failure, fixes,
-              + an evidence line                  finishes again
+you ──/handout──▶ worker works in isolation ──▶ tries to finish
+                                                     │
+                                    SubagentStop hook runs verify.py
+                                                     │
+                  ┌──────────────────────────────────┴──────────────────────────┐
+                  ▼                                                               ▼
+             all gates pass                                               a gate blocks
+                  │                                                               │
+        result returns to you                            worker sees the failure, fixes,
+        + an evidence line                                       finishes again
 ```
 
 ## Tests

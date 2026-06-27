@@ -1,64 +1,60 @@
-# How this was built
+# How the gates were chosen
 
-Quality Loop wasn't designed from first principles. It was **reverse-engineered
-from evidence** — the actual record of where an AI coding agent and its operator
-rubbed against each other, day after day, for months.
+Quality Loop is the **verify** stage of a development loop (see the
+[README](../README.md)) — and a verifier is only worth building where the agent
+actually fails. So the gates here are not a generic quality checklist. Each one
+targets a specific, recurring way coding agents go wrong, and each exists only
+because a prose instruction against that failure does not hold.
 
-## 1. Mine the friction
+## The principle
 
-Every Claude Code session is logged as a transcript. The operator's own typed
-messages — not the assistant's — are where friction surfaces: the corrections,
-the "no, not like that," the "I already told you," the "just answer the
-question." Those messages are the ground truth of what the agent keeps getting
-wrong.
+Coding agents fail in a small number of recognizable ways, and they keep failing
+the same ways even when the rule against them is written down and in context the
+whole time. **Soft corrections don't persist — the model's generative defaults
+beat a standing instruction under load.**
 
-The build started by extracting thousands of those operator messages across
-months of work and clustering them into a friction taxonomy.
+So the method is not "add more rules." It is: take a failure that recurs *despite*
+a rule, and move that rule out of prose the model can override into a **mechanical
+gate** that runs at the moment the failure would reach the human.
 
-## 2. The taxonomy
+## The failures worth gating
 
-A handful of patterns accounted for the overwhelming majority of friction:
+A handful of patterns account for most of the friction between an operator and a
+coding agent. Each becomes one check:
 
-| Rank | Friction | What the agent did |
-|------|----------|--------------------|
-| 1 | **Unverified claims** | Said "tests pass / fixed / done / merged" without running the check |
-| 2 | **Wrong altitude** | Answered a yes/no question with a thesis |
-| 3 | **Ignored standing instructions** | Regenerated banned patterns; took unauthorized irreversible actions |
-| 4 | **Over-engineering** | Turned a one-line ask into a sprawling build; ran away with agents/processes |
-| 5 | **Wrong mental model** | Reasoned from priors instead of reading the ticket/doc/code |
+| Friction | What the agent does | The gate |
+|----------|---------------------|----------|
+| **Unverified claims** | Says "tests pass / fixed / done / merged" without running the check | **claims** — scans the turn for evidence behind every claim, blocks if it's missing |
+| **Wrong altitude** | Answers a yes/no question with a thesis | **altitude** — a linter on the outgoing reply |
+| **Ignored standing instructions** | Regenerates patterns you've banned before | **bans** — greps the actual diff against a durable kill-list |
+| **Unauthorized irreversible actions** | Merges or pushes to main you never approved | **merge-guard** — a hard pre-tool block with a one-shot token |
+| **Re-litigating settled work** | Reopens or re-architects a decision already made | **decision ledger** — the binding decisions re-injected every turn |
+| **Over-engineering** | Turns a one-line ask into a sprawling build | **scope** — warns when a small ask produces a big diff or runaway fan-out |
 
-## 3. The key insight
+Every row is the same move: a rule the model kept overriding, turned into a check
+it cannot talk past.
 
-The same failures recurred for months even though the rules against them were
-written down and in context the whole time. **Soft corrections don't persist —
-the model's generative defaults beat a standing instruction under load.**
+One recurring failure deliberately has *no* gate — the **wrong mental model**,
+where the agent reasons from priors instead of reading the ticket, doc, or code.
+That can't be caught by a diff or a message linter, so it's handled upstream
+instead: the worker agent is instructed to ground every task in its source before
+acting. Not everything belongs in a gate.
 
-So the fix is not more rules. The fix is to move each rule out of prose the model
-can override and into a **mechanical gate** that runs at the moment the failure
-would reach the human:
-
-- "Don't claim it works without checking" → a gate that scans the turn for
-  evidence behind every claim, and blocks if it's missing.
-- "Answer at the right altitude" → a linter on the outgoing message.
-- "Stop regenerating banned patterns" → a grep of the actual diff against a
-  durable kill-list.
-- "Never merge without permission" → a hard pre-tool block with a one-shot token.
-- "Stop forgetting what we decided" → a ledger re-injected every turn.
-
-## 4. Keep it from nagging
+## Keep it from nagging
 
 An always-on gate that miscalibrates becomes its own friction. So enforcement is
 **opt-in**: the teeth only engage while a task is explicitly being run through
-the loop. Outside it, the gates are silent.
+`/handout`. Outside it, the gates are silent.
 
-## 5. Close the flywheel
+## Close the loop
 
-A nightly job mines each day's new corrections and proposes additions to the
-kill-list and claim vocabulary. Every correction becomes a durable, machine-
-checked rule instead of a thing the agent is asked to "remember harder." The
-system gets measurably less wrong over time.
+A nightly job (optional) reads each day's operator corrections and proposes *new*
+gates or sharper claim vocabulary — never case-specific bans, and most days it
+proposes nothing. The aim is that a correction you make once can become a durable,
+machine-checked rule instead of something the agent is asked to "remember harder."
+You review every proposal; it never edits the gates itself.
 
 ---
 
 The deliverable is small on purpose. The value isn't lines of code — it's the
-method: **measure where the agent fails, then build a verifier exactly there.**
+method: **find where the agent reliably fails, and put a verifier exactly there.**
