@@ -181,6 +181,52 @@ J
 R=$(cd "$SRC" && python3 gate_claims.py "$TMP/deleg.jsonl" "$GOOD")
 assert_empty "$R" "main thread not blocked for relaying a delegated worker's result"
 
+# ---------- adversarial verifier: the verdict gate ----------
+echo "Verdict gate:"
+cat > "$TMP/vpass.jsonl" <<'J'
+{"type":"user","message":{"role":"user","content":"verify the change"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"re-running"},{"type":"tool_use","name":"Bash","input":{"command":"npm test -- ok.ts"}}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"```ql-verdict\nverdict: pass\nsummary: re-ran the suite myself, holds\nchecks:\n  - check: re-ran the test suite\n    evidence:\n      type: command\n      ref: npm test -- ok.ts\n      result: green\n```"}]}}
+J
+R=$(cd "$SRC" && python3 verify.py "$TMP/vpass.jsonl" "$GOOD" --role verifier)
+assert_has "$R" '"pass": true' "verdict pass backed by a re-run command passes the verdict gate"
+
+cat > "$TMP/vstamp.jsonl" <<'J'
+{"type":"user","message":{"role":"user","content":"verify the change"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"```ql-verdict\nverdict: pass\nsummary: looks fine to me\nchecks:\n```"}]}}
+J
+R=$(cd "$SRC" && python3 verify.py "$TMP/vstamp.jsonl" "$GOOD" --role verifier)
+assert_has "$R" 'no check backed by evidence' "verdict pass with no evidence (rubber-stamp) is blocked"
+
+cat > "$TMP/vvague.jsonl" <<'J'
+{"type":"user","message":{"role":"user","content":"verify the change"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"checking"},{"type":"tool_use","name":"Bash","input":{"command":"git diff HEAD"}}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"```ql-verdict\nverdict: fail\nsummary: feels incomplete\nchecks:\n  - check: read the diff\n    evidence:\n      type: command\n      ref: git diff HEAD\n      result: saw it\nfindings:\n  - severity: blocking\n    issue:\n    where:\n```"}]}}
+J
+R=$(cd "$SRC" && python3 verify.py "$TMP/vvague.jsonl" "$GOOD" --role verifier)
+assert_has "$R" 'no finding names a concrete issue' "verdict fail with no concrete defect is blocked"
+
+cat > "$TMP/vfail.jsonl" <<J
+{"type":"user","message":{"role":"user","content":"verify the change"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"checking"},{"type":"tool_use","name":"Bash","input":{"command":"git diff HEAD"}}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"\`\`\`ql-verdict\nverdict: fail\nsummary: the off-by-one is still there\nchecks:\n  - check: inspected the diff\n    evidence:\n      type: command\n      ref: git diff HEAD\n      result: x set but loop bound unchanged\nfindings:\n  - severity: blocking\n    issue: loop still runs one short\n    where: $GOODFILE:1\n\`\`\`"}]}}
+J
+R=$(cd "$SRC" && python3 verify.py "$TMP/vfail.jsonl" "$GOOD" --role verifier)
+assert_has "$R" '"pass": true' "verdict fail with a concrete defect is well-formed and passes the gate"
+
+# SubagentStop routes a verdict block to the verifier gate, not the builder's claim gate
+echo "SubagentStop verifier routing:"
+VKEY=$(printf '%s' "$GOOD" | shasum -a 1 | cut -c1-16)
+rm -f "$SRC/state/active-$VKEY" "$SRC/state/attempts-"*
+touch "$SRC/state/active-$VKEY"
+ERR=$(printf '{"cwd":"%s","transcript_path":"%s/vpass.jsonl","agent_id":"v1"}' "$GOOD" "$TMP" | bash "$SRC/gate-subagent-stop.sh" 2>&1 >/dev/null); RC=$?
+[ "$RC" -eq 0 ] && ok "verifier pass verdict exits clean (exit 0)" || no "expected exit 0, got $RC"
+assert_has "$ERR" 'VERIFIER VERDICT: pass' "SubagentStop reports the verifier verdict, not a missing ql-result"
+ERR=$(printf '{"cwd":"%s","transcript_path":"%s/vstamp.jsonl","agent_id":"v2"}' "$GOOD" "$TMP" | bash "$SRC/gate-subagent-stop.sh" 2>&1 >/dev/null); RC=$?
+[ "$RC" -eq 2 ] && ok "rubber-stamp verdict forces a retry (exit 2)" || no "expected exit 2, got $RC"
+assert_has "$ERR" 'no check backed by evidence' "verifier retry names the rubber-stamp"
+rm -f "$SRC/state/active-$VKEY" "$SRC/state/attempts-"*
+
 echo
 echo "==== $PASS passed, $FAIL failed ===="
 [ "$FAIL" -eq 0 ]

@@ -37,8 +37,40 @@ it cannot talk past.
 One recurring failure deliberately has *no* gate — the **wrong mental model**,
 where the agent reasons from priors instead of reading the ticket, doc, or code.
 That can't be caught by a diff or a message linter, so it's handled upstream
-instead: the worker agent is instructed to ground every task in its source before
+instead: the builder agent is instructed to ground every task in its source before
 acting. Not everything belongs in a gate.
+
+## Why two agents, not one
+
+The mechanical gates above check the *envelope* — that a claim cites evidence, that
+no banned pattern landed. They cannot tell you the work is actually correct. For
+that you need a second judgment, and the tempting cheap version is to have the same
+agent re-check its own output, or to retry it until it passes. The evidence says
+that version does not work.
+
+The finding that drove the redesign: the quality gain comes from **context
+separation, not repetition**. In a controlled study, an agent reviewing its own
+work twice in the same session was no better than reviewing it once — while a
+verifier in a *fresh* context that never saw the original reasoning caught
+significantly more. Re-reading your own work anchors you into rationalizing it; the
+context that produced the bug is the worst context to find it from. Separately, LLMs
+reliably over-rate their own output, so an agent grading its own homework is biased
+by construction.
+
+So the loop splits the work across two agents in two contexts. A **builder** makes
+the change. A separate **adversarial verifier**, spawned fresh with only the task,
+the diff, and the builder's claims — never the builder's reasoning — re-runs those
+claims itself and tries to break the work. It has no edit tools, so it cannot quietly
+fix-and-bless; it can only judge. Its verdict is gated the same way the builder's
+claims are: it cannot pass without evidence it re-ran something, and it cannot fail
+without naming a concrete defect. On a fail, a *fresh* builder turn gets the
+findings — bounded to two rounds, then it escalates to you rather than looping in a
+stale context.
+
+Two agents is the whole architecture. The research is just as clear that more is
+usually worse: for coding there is little to parallelize and a swarm burns many
+times the tokens for no reliable gain. The cheap, separated, adversarial pair is
+the part that pays.
 
 ## Keep it from nagging
 
