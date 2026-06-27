@@ -218,13 +218,20 @@ crontab -e
 
 Every gate reads the session transcript (`.jsonl`) and the working tree's `git
 diff`. A "turn" is the slice of agent activity since the last message — the
-window in which a claim must have its evidence. `verify.py` runs all gates and
-aggregates a `{pass, blocks, warnings}` verdict.
+window in which a claim must have its evidence. `verify.py` runs the gates for the
+current role and aggregates a `{pass, blocks, warnings}` verdict.
 
-The verdict is enforced in **two places**: when the isolated worker finishes its
-turn (`SubagentStop`), its output is gated before it can return to you — a failing
-verdict sends it back to fix and finish again; and when your own report finishes
-(`Stop`), its altitude is checked. Nothing depends on the model choosing to behave.
+The verdict is enforced in **two places**, with a role-specific gate set:
+
+- When the isolated worker finishes its turn (`SubagentStop`, role `worker`), its
+  output is gated by **claims + bans + altitude** before it can return to you — a
+  failing verdict sends it back to fix and finish again.
+- When your own report finishes (`Stop`, role `lead`), it's gated by **bans +
+  altitude** — the claims gate is skipped, since the lead writes prose to you
+  rather than doing the work itself.
+
+The `scope` gate runs in both as a warning. Nothing depends on the model choosing
+to behave.
 
 ```
 you ──/handout──▶ worker works in isolation ──▶ tries to finish
