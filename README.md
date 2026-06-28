@@ -73,12 +73,25 @@ would reach you.**
 
 ## What it does
 
-When you run `/handout`, the loop arms a set of gates that run automatically when
-the agent tries to finish a turn:
+When you run `/handout`, the work goes through **two agents in separate contexts**,
+not one. A **builder** makes the change. Then a separate **adversarial verifier** —
+in a fresh context that never saw how the builder reasoned — re-runs the builder's
+claims itself and tries to break the work. It has no edit tools: it judges, it does
+not fix. If it finds a real defect, the task goes back to a fresh builder turn with
+those findings, bounded to two rounds before it escalates to you.
+
+The separation is the point. Re-checking work in the same context that produced it
+does not catch what that context already talked itself past — so retrying the same
+agent in its own growing context is exactly what this avoids. (This is the lesson
+the design was rebuilt around; see [docs/METHODOLOGY.md](docs/METHODOLOGY.md).)
+
+Underneath both agents, a set of mechanical gates runs automatically when an agent
+tries to finish a turn — the deterministic floor that neither agent can talk past:
 
 | Gate | Blocks the turn when… |
 |------|------------------------|
-| **claims** | a "tests pass / fixed / merged / deployed / the DB shows" claim has no matching tool-evidence in the same turn |
+| **claims** | (builder) a "tests pass / fixed / merged / deployed / the DB shows" claim has no matching tool-evidence in the same turn |
+| **verdict** | (verifier) the verdict rubber-stamps (a `pass` with no evidence it actually re-ran anything) or rejects vaguely (a `fail` with no concrete defect at `path:line`) |
 | **bans** | the diff adds a pattern on your kill-list (narrating comments, types in the wrong file, a concept you removed, an unwanted dependency) |
 | **altitude** | you asked a question and the reply is a thesis (code blocks, file refs, tables, or over ~14 lines) |
 | **scope** *(warn)* | a small ask produced a big diff, or the turn spawned runaway agents/processes |
@@ -221,29 +234,35 @@ diff`. A "turn" is the slice of agent activity since the last message — the
 window in which a claim must have its evidence. `verify.py` runs the gates for the
 current role and aggregates a `{pass, blocks, warnings}` verdict.
 
-The verdict is enforced in **two places**, with a role-specific gate set:
+The gate set is **role-specific**, and the hook picks the role by what the agent
+emitted — a builder ends its turn with an `ql-result` block, a verifier with an
+`ql-verdict` block:
 
-- When the isolated worker finishes its turn (`SubagentStop`, role `worker`), its
-  output is gated by **claims + bans + altitude** before it can return to you — a
-  failing verdict sends it back to fix and finish again.
-- When your own report finishes (`Stop`, role `lead`), it's gated by **bans +
-  altitude** — the claims gate is skipped, since the lead writes prose to you
-  rather than doing the work itself.
+- Builder finishes (`SubagentStop`, role `worker`): gated by **claims + bans +
+  altitude**. A failing gate sends it back to fix and finish again.
+- Verifier finishes (`SubagentStop`, role `verifier`): gated by **verdict** — it
+  cannot pass without evidence it re-ran something, nor fail without a concrete
+  defect.
+- Your report finishes (`Stop`, role `lead`): gated by **bans + altitude** — the
+  claims gate is skipped, since the lead relays a result rather than doing the work.
 
-The `scope` gate runs in both as a warning. Nothing depends on the model choosing
-to behave.
+The `scope` gate runs as a warning. The mechanical gates are the floor; the one
+judgment the loop asks of the lead is to actually spawn the verifier in a fresh
+context. Everything either agent then asserts is gated.
 
 ```
-you ──/handout──▶ worker works in isolation ──▶ tries to finish
-                                                     │
-                                    SubagentStop hook runs verify.py
-                                                     │
-                  ┌──────────────────────────────────┴──────────────────────────┐
-                  ▼                                                               ▼
-             all gates pass                                               a gate blocks
-                  │                                                               │
-        result returns to you                            worker sees the failure, fixes,
-        + an evidence line                                       finishes again
+you ──/handout──▶ builder works in isolation ──▶ ql-result ──▶ claims/bans gate
+                                                                     │ pass
+                                                                     ▼
+                          fresh verifier (never saw the builder) tries to break it
+                                                                     │ ql-verdict
+                                                                     ▼
+                  ┌──────────────────────────────────────┬──────────────────────┐
+                  ▼                                        ▼                      ▼
+            verdict: pass                          verdict: fail            gate rejects
+                  │                          (re-spawn builder with         the verdict
+        result returns to you                findings, max 2 rounds,     (rubber-stamp /
+        + an evidence line                   then escalate to you)        vague — retry)
 ```
 
 ## Tests

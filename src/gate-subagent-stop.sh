@@ -15,6 +15,28 @@ MARKER="$QL/state/active-$(printf '%s' "$CWD" | shasum -a 1 | cut -c1-16)"
 CNT="$QL/state/attempts-$AGENT"
 N=$(cat "$CNT" 2>/dev/null || echo 0)
 
+# Route the adversarial verifier: it emits ql-verdict (not ql-result), so it must
+# be checked by the verdict gate, never the builder's claim gate.
+if [ "$(cd "$QL" && python3 gate_verdict.py "$TRANSCRIPT" --is-verdict 2>/dev/null)" = "yes" ]; then
+  RESULT=$(cd "$QL" && python3 verify.py "$TRANSCRIPT" "$CWD" --role verifier 2>/dev/null)
+  [ -z "$RESULT" ] && exit 0
+  mkdir -p "$QL/logs"
+  echo "$RESULT" | jq -r '.warnings[]? | "WARN(verifier): " + .' >> "$QL/logs/warnings.log" 2>/dev/null
+  if [ "$(echo "$RESULT" | jq -r '.pass' 2>/dev/null)" = "false" ]; then
+    if [ "$N" -ge "$MAX_ATTEMPTS" ]; then
+      echo "$(date '+%F %T') verifier gate gave up after $N attempts ($AGENT)" >> "$QL/logs/warnings.log"
+      rm -f "$CNT"; exit 0
+    fi
+    echo $((N+1)) > "$CNT"
+    echo "VERIFIER GATE FAILED — fix each item before finishing:" >&2
+    echo "$RESULT" | jq -r '.blocks | to_entries[] | "  \(.key+1). \(.value)"' >&2
+    exit 2
+  fi
+  rm -f "$CNT"
+  echo "VERIFIER VERDICT: $(cd "$QL" && python3 gate_verdict.py "$TRANSCRIPT" --verdict 2>/dev/null)" >&2
+  exit 0
+fi
+
 # Non-terminal results are not failures: never retry, never burn an attempt.
 STATUS=$(cd "$QL" && python3 gate_claims.py "$TRANSCRIPT" --status 2>/dev/null)
 if [ "$STATUS" = "working" ] || [ "$STATUS" = "input-required" ]; then
