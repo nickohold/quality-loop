@@ -31,6 +31,8 @@ fi
 
 rm -rf "$QL"
 rm -rf "$CLAUDE_HOME/quality-loop"   # legacy location, if present
+rm -rf "$CLAUDE_HOME/skills/dev-loop" "$CLAUDE_HOME/skills/team-review" "$CLAUDE_HOME/skills/feature-dev-team"
 rm -f "$CLAUDE_HOME/commands/approve-merge.md"
 rm -f "$CLAUDE_HOME/agents/handout-worker.md"
+rm -f "$CLAUDE_HOME/agents/handout-verifier.md"
 echo "Quality Loop uninstalled. (Your bans.txt and logs under $QL were removed too.)"

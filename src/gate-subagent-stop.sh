@@ -37,6 +37,34 @@ if [ "$(cd "$QL" && python3 gate_verdict.py "$TRANSCRIPT" --is-verdict 2>/dev/nu
   exit 0
 fi
 
+# Route the team-review presenter: it emits ql-consensus, checked by the consensus gate.
+if [ "$(cd "$QL" && python3 gate_consensus.py "$TRANSCRIPT" --is-consensus 2>/dev/null)" = "yes" ]; then
+  RESULT=$(cd "$QL" && python3 verify.py "$TRANSCRIPT" "$CWD" --role consensus 2>/dev/null)
+  [ -z "$RESULT" ] && exit 0
+  mkdir -p "$QL/logs"
+  echo "$RESULT" | jq -r '.warnings[]? | "WARN(consensus): " + .' >> "$QL/logs/warnings.log" 2>/dev/null
+  if [ "$(echo "$RESULT" | jq -r '.pass' 2>/dev/null)" = "false" ]; then
+    if [ "$N" -ge "$MAX_ATTEMPTS" ]; then
+      echo "$(date '+%F %T') consensus gate gave up after $N attempts ($AGENT)" >> "$QL/logs/warnings.log"
+      rm -f "$CNT"; exit 0
+    fi
+    echo $((N+1)) > "$CNT"
+    echo "CONSENSUS GATE FAILED — fix each item before finishing:" >&2
+    echo "$RESULT" | jq -r '.blocks | to_entries[] | "  \(.key+1). \(.value)"' >&2
+    exit 2
+  fi
+  rm -f "$CNT"
+  echo "CONSENSUS VERDICT: $(cd "$QL" && python3 gate_consensus.py "$TRANSCRIPT" --verdict 2>/dev/null)" >&2
+  exit 0
+fi
+
+# A turn that ends by messaging a teammate is mid-conversation (debate rounds,
+# confirmer handoff) — non-terminal, never gated, never burns an attempt.
+if [ "$(cd "$QL" && python3 -c 'import sys,qllib; print("yes" if any(u["name"]=="SendMessage" for u in qllib.turn_tool_uses(qllib.read_lines(sys.argv[1]))) else "no")' "$TRANSCRIPT" 2>/dev/null)" = "yes" ]; then
+  rm -f "$CNT"
+  exit 0
+fi
+
 # Non-terminal results are not failures: never retry, never burn an attempt.
 STATUS=$(cd "$QL" && python3 gate_claims.py "$TRANSCRIPT" --status 2>/dev/null)
 if [ "$STATUS" = "working" ] || [ "$STATUS" = "input-required" ]; then

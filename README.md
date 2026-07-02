@@ -25,6 +25,7 @@ See [docs/METHODOLOGY.md](docs/METHODOLOGY.md) for how the gates were chosen.
 ## Contents
 
 - [Where this fits in the loop](#where-this-fits-in-the-loop)
+- [The dev loop (v2)](#the-dev-loop-v2)
 - [The problem](#the-problem)
 - [What it does](#what-it-does)
   - [Opt-in by design](#opt-in-by-design)
@@ -56,6 +57,25 @@ it lives elsewhere: in your head, a ticket, or another tool. Hand off a sharp
 task and the gates guarantee a sharp, evidence-backed result; hand off a vague
 one and they faithfully verify a vague one. Quality Loop makes the result
 trustworthy; it does not make the task good — that is the part before this.
+
+## The dev loop (v2)
+
+As of 2026-07-02 the package also ships **`/dev-loop`** — a full assembly line
+that reuses the gate engine at every station: intake (Linear ticket, GitHub
+issue, spec file, or `next`) → repo preflight → flow recon → architect design →
+adversarial design review → gated build + independent verifier → targeted QA →
+adversarial result review with bounded auto-rework → a three-line human
+delivery behind `/approve-merge`. The design reviews run as `/team-review`
+(pragmatist vs purist debating to unanimous consensus over SendMessage), and
+that consensus is itself mechanically gated by the new `gate_consensus.py`: the
+verdict must be a real enum, the debate must have verifiably happened (the
+SendMessage count is taken from the transcript, not self-reported), every
+accepted finding needs a resolving `path:line`, and `fix-first` with no
+findings is rejected. Skills involved: `skill/dev-loop/` (orchestrator + the
+worker output contract), `skill/team-review/`, `skill/feature-dev-team/`
+(demoted to routing/ownership — its honor-system review loops are retired).
+Full architecture walkthrough, with the design decisions and every gate's
+rules: [`docs/dev-loop.html`](docs/dev-loop.html).
 
 ## The problem
 
