@@ -9,8 +9,10 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 WORKER_HARD = ["gate_claims", "gate_bans", "gate_altitude"]
 LEAD_HARD = ["gate_bans", "gate_altitude"]
 VERIFIER_HARD = ["gate_verdict"]
+CONSENSUS_HARD = ["gate_consensus"]
 SOFT_GATES = ["gate_scope"]
-HARD_BY_ROLE = {"lead": LEAD_HARD, "verifier": VERIFIER_HARD, "worker": WORKER_HARD}
+HARD_BY_ROLE = {"lead": LEAD_HARD, "verifier": VERIFIER_HARD, "worker": WORKER_HARD,
+                "consensus": CONSENSUS_HARD}
 
 def main():
     args = sys.argv[1:]

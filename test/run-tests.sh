@@ -227,6 +227,67 @@ ERR=$(printf '{"cwd":"%s","transcript_path":"%s/vstamp.jsonl","agent_id":"v2"}' 
 assert_has "$ERR" 'no check backed by evidence' "verifier retry names the rubber-stamp"
 rm -f "$SRC/state/active-$VKEY" "$SRC/state/attempts-"*
 
+# ---------- consensus gate: team-review's ql-consensus block ----------
+echo "Consensus turns:"
+SEND='{"type":"assistant","message":{"content":[{"type":"tool_use","name":"SendMessage","input":{"to":"purist","content":"round"}}]}}'
+cat > "$TMP/cgood.jsonl" <<J
+{"type":"user","message":{"role":"user","content":"review the diff together"}}
+$SEND
+$SEND
+$SEND
+{"type":"assistant","message":{"content":[{"type":"text","text":"Shared review below.\n\`\`\`ql-consensus\nverdict: fix-first\nrounds: 4\nsummary: one blocking issue survives consensus\naccepted:\n  - finding: off-by-one still reachable\n    evidence: $GOODFILE:1\ndropped:\n  - finding: rename handler\n    reason: pragmatist veto\n\`\`\`"}]}}
+J
+R=$(cd "$SRC" && python3 verify.py "$TMP/cgood.jsonl" "$GOOD" --role consensus)
+assert_has "$R" '"pass": true' "debated consensus with resolving evidence passes"
+
+cat > "$TMP/cshort.jsonl" <<J
+{"type":"user","message":{"role":"user","content":"review the diff together"}}
+$SEND
+{"type":"assistant","message":{"content":[{"type":"text","text":"\`\`\`ql-consensus\nverdict: ship-as-is\nrounds: 4\nsummary: fine\naccepted:\ndropped:\n\`\`\`"}]}}
+J
+R=$(cd "$SRC" && python3 gate_consensus.py "$TMP/cshort.jsonl" "$GOOD")
+assert_has "$R" 'SendMessage exchange' "consensus without a real debate is blocked (transcript-counted)"
+
+cat > "$TMP/cempty.jsonl" <<J
+{"type":"user","message":{"role":"user","content":"review the diff together"}}
+$SEND
+$SEND
+$SEND
+{"type":"assistant","message":{"content":[{"type":"text","text":"\`\`\`ql-consensus\nverdict: fix-first\nrounds: 4\nsummary: needs fixes\naccepted:\ndropped:\n\`\`\`"}]}}
+J
+R=$(cd "$SRC" && python3 gate_consensus.py "$TMP/cempty.jsonl" "$GOOD")
+assert_has "$R" 'accepted is empty' "fix-first with no accepted findings is blocked"
+
+cat > "$TMP/cdead.jsonl" <<J
+{"type":"user","message":{"role":"user","content":"review the diff together"}}
+$SEND
+$SEND
+$SEND
+{"type":"assistant","message":{"content":[{"type":"text","text":"\`\`\`ql-consensus\nverdict: fix-first\nrounds: 4\nsummary: found one\naccepted:\n  - finding: phantom defect\n    evidence: $GOODFILE:999\ndropped:\n\`\`\`"}]}}
+J
+R=$(cd "$SRC" && python3 gate_consensus.py "$TMP/cdead.jsonl" "$GOOD")
+assert_has "$R" 'no resolving evidence' "accepted finding pointing at a dead line is blocked"
+
+# SubagentStop routes a consensus block to the consensus gate; mid-debate turns skip
+echo "SubagentStop consensus routing:"
+CKEY=$(printf '%s' "$GOOD" | shasum -a 1 | cut -c1-16)
+rm -f "$SRC/state/active-$CKEY" "$SRC/state/attempts-c"*
+touch "$SRC/state/active-$CKEY"
+ERR=$(printf '{"cwd":"%s","transcript_path":"%s/cgood.jsonl","agent_id":"c1"}' "$GOOD" "$TMP" | bash "$SRC/gate-subagent-stop.sh" 2>&1 >/dev/null); RC=$?
+[ "$RC" -eq 0 ] && ok "gated consensus exits clean (exit 0)" || no "expected exit 0, got $RC"
+assert_has "$ERR" 'CONSENSUS VERDICT: fix-first' "SubagentStop surfaces the consensus verdict"
+ERR=$(printf '{"cwd":"%s","transcript_path":"%s/cshort.jsonl","agent_id":"c2"}' "$GOOD" "$TMP" | bash "$SRC/gate-subagent-stop.sh" 2>&1 >/dev/null); RC=$?
+[ "$RC" -eq 2 ] && ok "short-circuited consensus forces a retry (exit 2)" || no "expected exit 2, got $RC"
+cat > "$TMP/cmid.jsonl" <<J
+{"type":"user","message":{"role":"user","content":"review the diff together"}}
+$SEND
+J
+rm -f "$SRC/state/attempts-c3"
+printf '{"cwd":"%s","transcript_path":"%s/cmid.jsonl","agent_id":"c3"}' "$GOOD" "$TMP" | bash "$SRC/gate-subagent-stop.sh" >/dev/null 2>&1; RC=$?
+[ "$RC" -eq 0 ] && ok "mid-debate SendMessage turn is non-terminal (exit 0)" || no "expected exit 0, got $RC"
+[ ! -f "$SRC/state/attempts-c3" ] && ok "mid-debate turn never burns an attempt" || no "attempt counter was written"
+rm -f "$SRC/state/active-$CKEY" "$SRC/state/attempts-c"*
+
 echo
 echo "==== $PASS passed, $FAIL failed ===="
 [ "$FAIL" -eq 0 ]

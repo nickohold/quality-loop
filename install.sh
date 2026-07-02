@@ -37,6 +37,12 @@ cp "$REPO"/commands/approve-merge.md "$CLAUDE_HOME/commands/"
 cp "$REPO"/agents/handout-worker.md "$CLAUDE_HOME/agents/"
 cp "$REPO"/agents/handout-verifier.md "$CLAUDE_HOME/agents/"
 
+# 2b. The dev-loop line: /dev-loop orchestrator + the skills it drives
+for s in dev-loop team-review feature-dev-team; do
+  mkdir -p "$CLAUDE_HOME/skills/$s"
+  cp "$REPO"/skill/"$s"/* "$CLAUDE_HOME/skills/$s/"
+done
+
 # 3. Wire hooks into settings.json (idempotent; strips any old quality-loop hooks)
 SETTINGS="$CLAUDE_HOME/settings.json"
 [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
